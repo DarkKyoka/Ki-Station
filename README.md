@@ -1,6 +1,6 @@
 # Ki-Station
 
-Currently under design phas. UI is designed on [Penpot](https://design.penpot.app). 
+Currently under design phase. UI is designed on [Penpot](https://design.penpot.app). 
 Development will start soon and it will be built with C# and Avalonia UI.
 
 # About the software
