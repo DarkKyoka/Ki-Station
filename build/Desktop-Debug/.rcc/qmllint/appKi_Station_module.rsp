@@ -1,0 +1,14 @@
+-I
+/home/vaggelis/Ki_Station/build/Desktop-Debug
+-I
+/home/vaggelis/Ki_Station/build/Desktop-Debug/Ki_Station
+-I
+/home/vaggelis/Ki_Station/build/Desktop-Debug
+-I
+/usr/lib64/qt6/qml
+--resource
+/home/vaggelis/Ki_Station/build/Desktop-Debug/.qt/rcc/qmake_Ki_Station.qrc
+--resource
+/home/vaggelis/Ki_Station/build/Desktop-Debug/.qt/rcc/appKi_Station_raw_qml_0.qrc
+--module
+Ki_Station

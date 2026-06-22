@@ -1,0 +1,2 @@
+set(__QT_DEPLOY_TARGET_appKi_Station_FILE /home/vaggelis/Ki_Station/build/Desktop-Debug/appKi_Station)
+set(__QT_DEPLOY_TARGET_appKi_Station_TYPE EXECUTABLE)

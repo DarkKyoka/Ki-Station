@@ -1,0 +1,6 @@
+module Ki_Station
+typeinfo appKi_Station.qmltypes
+prefer :/qt/qml/Ki_Station/
+Main 254.0 Main.qml
+depends QtQuick
+

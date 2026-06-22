@@ -1,0 +1,5 @@
+--resource
+/home/vaggelis/Ki_Station/build/Desktop-Debug/.qt/rcc/qmake_Ki_Station.qrc
+--resource
+/home/vaggelis/Ki_Station/build/Desktop-Debug/.qt/rcc/appKi_Station_raw_qml_0.qrc
+/qt/qml/Ki_Station/Main.qml

@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="/qt/qml/Ki_Station">/home/vaggelis/Ki_Station/build/Desktop-Debug/Ki_Station</file>
+
+  </qresource>
+</RCC>

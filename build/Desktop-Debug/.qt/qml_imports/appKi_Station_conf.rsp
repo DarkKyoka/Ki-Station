@@ -1,0 +1,14 @@
+-rootPath
+/home/vaggelis/Ki_Station
+-cmake-output
+-output-file
+/home/vaggelis/Ki_Station/build/Desktop-Debug/.qt/qml_imports/appKi_Station_conf.cmake
+-importPath
+/home/vaggelis/Ki_Station/build/Desktop-Debug
+-importPath
+/home/vaggelis/Ki_Station/build/Desktop-Debug/Ki_Station
+-importPath
+/usr/lib64/qt6/qml
+-qrcFiles
+/home/vaggelis/Ki_Station/build/Desktop-Debug/.qt/rcc/qmake_Ki_Station.qrc
+/home/vaggelis/Ki_Station/build/Desktop-Debug/.qt/rcc/appKi_Station_raw_qml_0.qrc
