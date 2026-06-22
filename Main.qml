@@ -41,7 +41,7 @@ Window {
 
                     Image {
                         id: hiddenImg
-                        source: "icons/Images/Makima.jpg"
+                        source: "icons/Images/Makima.jpg"   //placeholder image
                         visible: false
                         onStatusChanged: if (status === Image.Ready) pfpCanvas.requestPaint()
                     }
@@ -213,7 +213,10 @@ Window {
                         Text {
                             text: "Thunderstorm"
                             color: "white"
+
                             font.pointSize: 10
+                            Text
+
                             y: 2
 
                             anchors.right: parent.right
@@ -465,8 +468,7 @@ Window {
 
 
                                 }
-                                // intentionally empty — still needed so Slider has something to position,
-                                // but it draws nothing since it has no color/children
+
                             }
 
                         }
@@ -544,8 +546,7 @@ Window {
 
 
                                 }
-                                // intentionally empty — still needed so Slider has something to position,
-                                // but it draws nothing since it has no color/children
+
                             }
 
                         }
