@@ -1,7 +1,7 @@
 # Ki-Station
 
 Currently under design phase. UI is designed on Lunacy. 
-Development will start soon and it will be built with C# and Avalonia UI.
+Development has started and its developed using QML since its the proper way of developing Plasmoids.
 
 # About the software
 The Software will be a control station widget, like those linux KDE systems have.
