@@ -5,6 +5,9 @@ import QtQuick.Shapes 1.15
 import QtQuick.Effects
 import QtQuick.Controls
 
+import ki_Station 1.0
+
+
 Window {
     id: widgetMainWindow
     width: 430
@@ -18,7 +21,7 @@ Window {
         spacing: 2
         anchors.horizontalCenter: parent.horizontalCenter
 
-        // ===================== TOP PANEL =====================
+        //      TOP PANEL
         Rectangle {
             width: widgetMainWindow.width - 3
             height: 118
@@ -65,7 +68,7 @@ Window {
                     MouseArea { anchors.fill: parent; onClicked: console.log("pfp clicked") }
                 }
 
-                // user info
+                // Welcome flavor text,  Battery state,  and State Badge Buttons
                 Column {
                     spacing: 4
                     Layout.alignment: Qt.AlignVCenter
@@ -79,30 +82,35 @@ Window {
                     Row {
                         spacing: 4
                         Text { text: "100%"; color: "white"; font.pointSize: 11 }
-                        Text { text: "🔋"; font.pointSize: 11 }   // will replace with battery icon logic later
+                        Image{source: "icons/battery-full.svg"}
                     }
 
 
                     Row {
-                        spacing: 10
+                        spacing: 7
+
+                        //Settings
+                        Image{
+                            source:  "icons/settings.svg"
+                            width: 22; height: 22
+                        }
 
                         // wifi
                         Image {
-                            source:  "icons/Wifi/wifi.svg"  // TODO: replace — pre-color it white in the file
+                            source:  "icons/Wifi/wifi.svg"
                             width: 22; height: 22
                         }
 
                         // bluetooth
                         Image {
-                            source: "icons/Bluetooth/bluetooth_static.svg"      // TODO: replace — pre-color it blue/cyan in the file
+                            source: "icons/Bluetooth/bluetooth_static.svg"
                             width: 22; height: 22
                         }
 
                         // Kde Connect
                         Image {
-                            property bool micMuted: true
-                            source: micMuted ? "icons/mic-muted.svg" : "icons/mic.svg"
-                            width: 18; height: 18
+                            source: "icons/monitor-smartphone.svg"
+                            width: 22; height: 22
                         }
                     }
                 }
@@ -132,6 +140,7 @@ Window {
             }
         }
 
+        // Second Row of Panels (Weather-time & Media Player)
         RowLayout {
             spacing: 2
             width: widgetMainWindow.width - 3
@@ -146,21 +155,21 @@ Window {
 
                 Column {
                     anchors.left: parent.left
-                    anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.margins: 10
+                    width: parent.width - 20
                     spacing: 6
 
                     // City + date row
                     Row {
                         width: parent.width
                         Text {
-                            width: 130
+                            width: 125
                             text: "Athens"
                             font.pointSize: 10
                             color: "white"
                         }
-                        Item { width: 1 }
+                        //Item { width: 1 }
                         Text {
                             text: "19/6"
                             color: "white"
@@ -179,7 +188,7 @@ Window {
                         }
                         Text {
                             text: "pm"
-                            color: "orange"
+                            color: appConstants.secondaryAccent
                             font.pointSize: 16
                             anchors.top: parent.top
                             anchors.topMargin: 17
@@ -188,8 +197,9 @@ Window {
 
                     // Temp + weather icon + status row
                     Row {
-                        width: parent.width
-                        spacing: 90
+                        width: 150
+                        height: 30
+                        //spacing: 20
 
                         // x and Icon
                         Row{
@@ -211,11 +221,14 @@ Window {
                         Item { Layout.fillWidth: true}
 
                         Text {
-                            text: "Thunderstorm"
+
+                            text: "Mist"
                             color: "white"
 
+
+                            fontSizeMode: Text.Fit
                             font.pointSize: 10
-                            Text
+                            minimumPointSize: 6
 
                             y: 2
 
@@ -236,27 +249,39 @@ Window {
                 Column {
                     anchors.fill: parent
                     anchors.margins: 10
-                    spacing: 8
+                    spacing: 20
 
                     // Album art + song info
                     Row {
-                        spacing: 8
+                        spacing: 4
 
+
+                        // placeholder, it will be replaced by the Albums cover image
                         Rectangle {
                             id: albumArt
-                            width: 65
-                            height: 50
-                            color: "#1A0009"   // placeholder square — swap for Image once you have art
+                            width: 75
+                            height: 55
+                            color: "#1A0009"
                             radius: 4
                         }
 
                         // Media PLayer Info (name, artists, platform & State)
                         Column {
-                            spacing: 2
+                            y: 3
+
+                            spacing: 1
                             Text {
-                                text: "72 Seasons \\ Metallica"
+                                text: "72 Seasons"
                                 color: "white"
-                                font.pointSize: 9
+                                font.pointSize: 10
+                                width: 160
+                                elide: Text.ElideRight
+                            }
+
+                            Text{
+                                text: "Metallica"
+                                color: "#B0B0B0"
+                                font.pointSize: 8
                                 width: 160
                                 elide: Text.ElideRight
                             }
@@ -264,11 +289,39 @@ Window {
 
                             Text {
                                 text: "Spotify"
-                                color: "#1DB954"   // Spotify green
-                                font.pointSize: 9
+                                color: "#9BFA78"
+                                font.pointSize: 8
                             }
 
-                            // Playback controls
+                        }
+                    }
+
+
+                    // Media Progress bar
+                    Column {
+                        width: parent.width
+                        spacing: 2
+
+                        Row {
+                            //spacing: 0
+                            width: parent.width
+                            Text {
+                                width: 78
+                                text: "99:99:99";
+                                color: "white";
+                                horizontalAlignment: Text.AlignLeft
+                                font.pointSize: 8
+
+                                // DEBUG background
+                                // Rectangle {
+                                //     width: parent.width
+                                //     height: parent.height
+                                //     color: "white"
+                                // }
+
+                            }
+
+                            //Media Controls
                             Row {
                                 spacing: 15
                                 topPadding: 2
@@ -277,14 +330,24 @@ Window {
                                 Image { source: "icons/MediaPlayer/pause.svg";    width: 14; height: 14 }
                                 Image { source: "icons/MediaPlayer/skip-forward.svg"; width: 14; height: 14 }
                             }
+
+
+                            Text {
+                                width: 78
+                                text: "99:99:99";
+                                color: "white";
+                                horizontalAlignment: Text.AlignRight
+                                font.pointSize: 8
+
+                                // DEBUG background
+                                // Rectangle {
+                                //     width: parent.width
+                                //     height: parent.height
+                                //     color: "white"
+                                // }
+
+                            }
                         }
-                    }
-
-                    // Media Progress bar
-                    Column {
-                        width: parent.width
-                        spacing: 2
-
                         Rectangle {
                             width: parent.width
                             height: 12
@@ -299,19 +362,13 @@ Window {
                             }
                         }
 
-                        Row {
-                            spacing: 160
-                            width: parent.width
-                            Text { text: "1:30"; color: "white"; font.pointSize: 8 }
 
-                            Text { text: "7:30"; color: "white"; font.pointSize: 8 }
-                        }
                     }
                 }
             }
         }
 
-        // Bluetooth, KDE Connect & Volume / Brightness
+        // DND, Mic button & Volume / Brightness
         RowLayout {
             spacing: 2
             width: widgetMainWindow.width - 3
@@ -326,32 +383,34 @@ Window {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    spacing: 3
+                    spacing: 6
 
 
                     Image {
-                        source: "icons/Bluetooth/bluetooth_static.svg"
-                        width: 50
-                        height: 58
+                        source: "icons/DnD/bell-off.svg"
+                        width: 60
+                        height: 60
                         sourceSize: Qt.size(width, height)
                         visible: true
 
                         Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+
                     }
 
                     Text {
-                        text: "Mi Band 6"
+                        text: "DnD: on"
                         color: "white"
                         font.pointSize: 8
                         horizontalAlignment: Text.AlignHCenter
 
                         Layout.alignment: Qt.AlignHCenter
+                        Layout.topMargin: -35
 
                     }
                 }
             }
 
-            //  KDE connect
+            //  Mic Mute
             Rectangle {
                 color: "#2E0015"
                 height: 130
@@ -360,26 +419,28 @@ Window {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    spacing: 3
+                    spacing: 6
 
 
                     Image {
-                        source: "icons/monitor-smartphone.svg"
-                        width: 50
-                        height: 58
+                        source: "icons/Mic/mic-on.svg"
+                        width: 60
+                        height: 60
                         sourceSize: Qt.size(width, height)
                         visible: true
 
                         Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+
                     }
 
                     Text {
-                        text: "Mi Band 6"
+                        text: "Mic: Enabled"
                         color: "white"
                         font.pointSize: 8
                         horizontalAlignment: Text.AlignHCenter
 
                         Layout.alignment: Qt.AlignHCenter
+                        Layout.topMargin: -35
 
                     }
                 }

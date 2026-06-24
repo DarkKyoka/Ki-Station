@@ -14,21 +14,33 @@ set(APP_RESOURCES
     icons/battery-full.svg
     icons/power.svg
 
-    # Media Icons
+    # Media Control Icons
         icons/MediaPlayer/pause.svg
         icons/MediaPlayer/skip-forward.svg
         icons/MediaPlayer/skip-back.svg
+
+    # Settings gear
+        icons/settings.svg
+
     # Wifi
         icons/Wifi/wifi.svg
         icons/Wifi/wifi-high.svg
         icons/Wifi/wifi-low.svg
         icons/Wifi/wifi-zero.svg
 
+
     # Bluetooth
         icons/Bluetooth/bluetooth_static.svg
 
     # KDE
         icons/monitor-smartphone.svg
+
+    # DnD
+        icons/DnD/bell-off.svg
+
+    # Mic
+        icons/Mic/mic-on.svg
+        icons/Mic/mic-off.svg
 
     # Volume
         icons/volume-2.svg
@@ -53,5 +65,17 @@ qt_add_resources(${PROJECT_NAME} "resources"
     PREFIX "/"
     FILES ${APP_RESOURCES}
 )
+set_source_files_properties(appConstants.qml
+        PROPERTIES QT_QML_SINGLETON_TYPE TRUE
+)
+qt_add_qml_module(ki_Station
+        URI ki_Station
+        VERSION 1.0
+        QML_FILES
+          Main.qml
+          appConstants.qml
+
+)
+
 
 target_link_libraries(${PROJECT_NAME} PRIVATE ${QT_QUICK_LIB})
