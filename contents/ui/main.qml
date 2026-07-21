@@ -4,12 +4,14 @@ import QtQuick.Dialogs
 import QtQuick.Shapes 1.15
 import QtQuick.Effects
 import QtQuick.Controls
+import Qt5Compat.GraphicalEffects
 
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents3
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.plasma5support as P5Support
+import org.kde.notificationmanager as NotificationManager
 
 PlasmoidItem {
     id: widgetMainWindow
@@ -22,6 +24,49 @@ PlasmoidItem {
         id: fullRepItem
         implicitWidth: backgroundRect.width
         Layout.preferredHeight: backgroundRect.height
+
+        P5Support.DataSource {
+            id: systemSource
+            engine: "executable"
+            connectedSources: []
+            onNewData: (sourceName, data) => {
+                disconnectSource(sourceName)
+            }
+        }
+
+        // For Volume and Brightness
+        P5Support.DataSource{
+            id: sliderSource
+            engine: "executable"
+            connectedSources: []
+            onNewData: (sourceName, data) => {
+                var out = data["stdout"].trim()
+                if (sourceName.includes("get-sink-volume")) {
+                    volumeBar.value = parseInt(out)
+                }
+                if (sourceName.includes("brightnessMax")) {
+                    brightnessMaxVal = parseInt(out)
+                }
+                if (sourceName.includes("brightness") && !sourceName.includes("Max")) {
+                    if (brightnessMaxVal > 0)
+                        brightnessBar.value = Math.round((parseInt(out) / brightnessMaxVal) * 100)
+                }
+                disconnectSource(sourceName)
+            }
+            property int brightnessMaxVal: 10000
+
+            Component.onCompleted: {
+                connectSource("pactl get-sink-volume @DEFAULT_SINK@ | grep -oP '\\d+(?=%)' | head -1")
+                connectSource("qdbus6 org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl org.kde.Solid.PowerManagement.Actions.BrightnessControl.brightnessMax")
+                connectSource("qdbus6 org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl org.kde.Solid.PowerManagement.Actions.BrightnessControl.brightness")
+            }
+
+        }
+
+        // for Notification management , more specifically DnD
+        NotificationManager.Settings {
+            id: notifSettings
+        }
 
         Rectangle {
             id: backgroundRect
@@ -36,6 +81,8 @@ PlasmoidItem {
                 spacing: 2
                 anchors.horizontalCenter: parent.horizontalCenter
                 id: mainColumn
+
+
 
                 //      TOP PANEL
                 Rectangle {
@@ -53,122 +100,93 @@ PlasmoidItem {
                         anchors.margins: 8
                         spacing: 12
 
+                        //pfp
                         Item {
                             id: pfpRect
-
                             width: 90
                             height: 90
-
                             property string avatarSource: ""
 
                             P5Support.DataSource {
                                 id: accountsSource
-
                                 engine: "executable"
                                 connectedSources: []
 
-                                function exec(command, id) {
+                                function exec(command) {
                                     connectSource(command)
-                                    sourceIds[id] = command
                                 }
 
-                                property var sourceIds: ({})
-                                property string currentRequest: ""
-
                                 onNewData: (sourceName, data) => {
-
                                     if (data["exit code"] !== 0) {
-                                        console.log("Command failed:", sourceName)
+                                        //console.log("Avatar lookup step failed:", sourceName)
                                         disconnectSource(sourceName)
                                         return
                                     }
-
                                     var output = data["stdout"].trim()
-
-                                    console.log(sourceName, "=>", output)
-
-
-                                    // Step 1: get user object
-                                    if (sourceName === "users") {
-
-                                        // Extract /org/freedesktop/Accounts/UserXXXX
-                                        var userPath = output.match(/\/org\/freedesktop\/Accounts\/User[0-9]+/)[0]
-
+                                    if (sourceName === "whoami") {
+                                        var username = output
                                         accountsSource.exec(
-                                            "busctl get-property " +
-                                            "org.freedesktop.Accounts " +
-                                            userPath + " " +
-                                            "org.freedesktop.Accounts.User " +
-                                            "IconFile",
-                                            "icon"
+                                            "test -f /var/lib/AccountsService/icons/" + username +
+                                            " && echo /var/lib/AccountsService/icons/" + username +
+                                            " || echo ~/.face"
                                         )
                                     }
-
-
-                                    // Step 2: get avatar path
-                                    else if (sourceName === "icon") {
-
-                                        // busctl returns:
-                                        // s "/home/user/.face"
-
-                                        var path = output.replace(/^s "/, "").replace(/"$/, "")
-
-                                        console.log("Avatar path:", path)
-
-                                        if (path.length > 0)
-                                            pfpRect.avatarSource = "file://" + path
+                                    else {
+                                        if (output.length > 0)
+                                            pfpRect.avatarSource = "file://" + output
                                     }
-
-
                                     disconnectSource(sourceName)
                                 }
 
-
-                                Component.onCompleted: {
-
-                                    exec(
-                                        "busctl call " +
-                                        "org.freedesktop.Accounts " +
-                                        "/org/freedesktop/Accounts " +
-                                        "org.freedesktop.Accounts " +
-                                        "ListCachedUsers",
-                                        "users"
-                                    )
-                                }
+                                Component.onCompleted: exec("whoami")
                             }
 
+                            Image {
+                                id: avatarImg
+                                anchors.fill: parent
+                                source: pfpRect.avatarSource
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                visible: false
+
+                                //onStatusChanged: console.log("Avatar status:", status)
+                            }
 
                             Rectangle {
-
+                                id: circleMask
                                 anchors.fill: parent
-
                                 radius: width / 2
-                                clip: true
+                                visible: false
+                            }
 
-
-                                Image {
-
-                                    anchors.fill: parent
-
-                                    source: pfpRect.avatarSource
-
-                                    fillMode: Image.PreserveAspectCrop
-
-
-                                    onStatusChanged: {
-                                        console.log("Image status:", status)
-                                    }
-                                }
+                            OpacityMask {
+                                anchors.fill: avatarImg
+                                source: avatarImg
+                                maskSource: circleMask
                             }
                         }
 
                         // Welcome flavor text,  Battery state,  and State Badge Buttons
                         Column {
+                            id: flavorTextCol
+                            property string userName;
+
                             spacing: 4
                             Layout.alignment: Qt.AlignVCenter
 
+                            P5Support.DataSource{
+                                id: userSource
+                                engine: "executable"
+                                connectedSources: ["whoami"]
+
+                                onNewData: function(sourceName, data){
+                                    flavorTextCol.userName = data["stdout"].trim()
+                                }
+                            }
+
+                            // flavor welcome text
                             Text {
-                                text: "Hey, User!"
+                                text: "Hey, " + flavorTextCol.userName + "!"
                                 font.pointSize: 16
                                 color: "white"
                             }
@@ -190,9 +208,9 @@ PlasmoidItem {
 
                                         onDataChanged: {
                                             var battery = data["Battery"]
-                                            if(battery && battery["Has battery"] != undefined){
+                                            if(battery && battery["Has Battery"] !== undefined){
                                                 batteryItem.hasBattery = battery["Has Battery"]
-                                                batteryItem.percent = battery["Percent"]
+                                                batteryItem.percentage = battery["Percent"] !== undefined ? battery["Percent"] : 0
                                                 batteryItem.charging = battery["State"] === "Charging"
                                             }
                                         }
@@ -208,15 +226,41 @@ PlasmoidItem {
                                 spacing: 7
 
                                 //Settings
-                                Image {
-                                    source: "icons/settings.svg"
+                                Item {
                                     width: 22; height: 22
+
+                                    Image {
+                                        anchors.fill: parent
+                                        source: "icons/settings.svg"
+                                        sourceSize: Qt.size(width, height)
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: systemSource.connectSource("systemsettings")
+                                    }
                                 }
 
                                 // wifi
-                                Image {
-                                    source: "icons/Wifi/wifi.svg"
+                                Item {
                                     width: 22; height: 22
+
+                                    Image {
+                                        anchors.fill: parent
+                                        source: "icons/Wifi/wifi.svg"
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: wifiPopup.open()
+                                    }
+
+                                    Popup {
+                                        id: wifiPopup
+                                        // your mini panel content here
+                                    }
                                 }
 
                                 // bluetooth
@@ -235,26 +279,32 @@ PlasmoidItem {
 
                         Item { Layout.fillWidth: true }
 
-                        // power button
-                        Item {
-                            width: 36; height: 36
-                            Layout.alignment: Qt.AlignVCenter
 
+                    }
+                    // power button
+                    Item {
+                        width: 28; height: 28
+                        anchors.top: parent.top
+                        anchors.right: parent.right
+                        anchors.margins: 8
 
+                        Image {
+                            anchors.fill: parent
+                            source: "icons/power.svg"
+                            sourceSize: Qt.size(width, height)
+                        }
 
-                            Image {
-                                y: -32
-                                x: 12
-                                source: "icons/power.svg"
-                                sourceSize: Qt.size(width, height)
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: console.log("Power Button")
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                systemSource.connectSource(
+                                    "qdbus6 org.kde.LogoutPrompt /LogoutPrompt org.kde.LogoutPrompt.promptAll"
+                                )
                             }
                         }
                     }
+
                 }
 
                 // Second Row of Panels (Weather-time & Media Player)
@@ -300,7 +350,6 @@ PlasmoidItem {
                                     font.pointSize: 10
                                 }
                             }
-
 
 
                             // time
@@ -446,10 +495,149 @@ PlasmoidItem {
 
                     //                  Media Player
                     Rectangle {
+                        id: mediaCard
+
+
                         Layout.fillWidth: true
                         height: 124
                         radius: 0
                         color: "#2E0015"
+
+                        property string artUrl: ""
+                        property string videoUrl: ""
+                        property string activePlayer: ""
+
+                        property string title: "Nothing Playing"
+                        property string artist: ""
+                        property string album: ""
+                        property string player: ""
+                        property bool isPlaying: false
+                        property real position: 0      // Ms
+                        property real duration: 0      // Ms
+                        property real progress: duration > 0 ? position / duration : 0
+
+                        property bool hasPosition: position > 1000000
+
+                        function getThumbnail(url){
+                            var id = ""
+                            var idx = url.indexOf("v=")
+                            if (idx !== -1) {
+                                id = url.substring(idx + 2)
+                                var amp = id.indexOf("&")
+                                if (amp !== -1) id = id.substring(0, amp)
+                            }
+                            if (id !== "") {
+                                return "https://img.youtube.com/vi/" + id + "/mqdefault.jpg"
+                            }
+                            return ""
+                        }
+
+                        //Converts Ms to Minutes : Seconds format
+                        function formatTime(us){
+                            var s = Math.floor(us / 1000000)
+                            var m = Math.floor(s / 60)
+                            s = s % 60
+
+                            return m + ":" + (s < 10 ? "0" : "") + s
+                        }
+
+                        P5Support.DataSource{
+                            id: mediaSource
+                            engine: "executable"
+                            connectedSources: []
+                            onNewData: (sourceName, data) => {
+                                var out = data["stdout"].trim()
+                                //console.log("sourceName:", sourceName, "| out:", out)  // add this
+
+                                if (sourceName.includes("metadata --format")) {
+                                    var parts = out.split("|")
+                                    if (parts[0] === "") return
+
+                                    mediaCard.activePlayer = parts[0] || ""
+                                    mediaCard.title  = parts[1] || "Nothing Playing"
+                                    mediaCard.artist = parts[2] || ""
+                                    mediaCard.player = parts[0] || ""
+                                    mediaCard.videoUrl = parts[5] || ""
+
+                                    var art = parts[4] || ""
+                                    var pageUrl = parts[5] || ""
+
+                                    // Firefox sets artUrl to the watch page URL, not an image — ignore it
+                                    if (art.includes("youtube.com/watch") || art.includes("youtu.be/")) {
+                                        art = ""
+                                    }
+
+                                    // Derive thumbnail from page URL
+                                    if (art === "" && pageUrl !== "") {
+                                        art = mediaCard.getThumbnail(pageUrl)
+                                    }
+
+                                    if (art !== "") mediaCard.artUrl = art
+                                }
+                                if (sourceName.includes("playerctl status")) {
+                                    mediaCard.isPlaying = out === "Playing"
+                                }
+                                if (sourceName.includes("playerctl metadata mpris:length")) {
+                                    var len = parseFloat(out)
+
+                                    if (!isNaN(len) && len > 0) {
+                                        mediaCard.duration = len
+                                    }
+                                }
+                                if (sourceName.includes("playerctl position")) {
+                                    var sec = parseFloat(out)
+
+                                    if (!isNaN(sec)) {
+                                        mediaCard.position = sec * 1000000
+                                    }
+                                }
+                                disconnectSource(sourceName)
+                            }
+
+                            function refresh() {
+                                connectSource("playerctl metadata --format '{{playerName}}|{{title}}|{{artist}}|{{album}}|{{mpris:artUrl}}|{{xesam:url}}'")
+                                connectSource("playerctl status")
+                                connectSource("playerctl metadata mpris:length")
+                                connectSource("playerctl position")
+                            }
+                        }
+
+
+                        Timer {
+                            interval: 1000
+                            running: true
+                            repeat: true
+                            triggeredOnStart: true
+                            onTriggered: mediaSource.refresh()
+                        }
+
+                        // Refresh every Second
+                        Timer{
+                            interval: 1000
+                            running: mediaCard.isPlaying && !mediaCard.hasPosition
+                            repeat: true
+                            onTriggered: {
+                                if (!mediaCard.hasPosition) {
+                                    mediaCard.position += 1000000  // add 1 second in microseconds
+                                }
+                            }
+                        }
+
+                        Timer {
+                            id: seekRefresh
+                            interval: 200
+                            repeat: false
+
+                            onTriggered: mediaSource.refresh()
+                        }
+
+                        onTitleChanged: {
+                            if (!mediaCard.hasPosition) {
+                                mediaCard.position = 0
+                            }
+                        }
+                        onArtUrlChanged: console.log("artUrl changed to:", mediaCard.artUrl)
+
 
                         Column {
                             anchors.fill: parent
@@ -460,13 +648,43 @@ PlasmoidItem {
                             Row {
                                 spacing: 4
 
-                                // placeholder rectangle image, it will be replaced by the Albums cover image
-                                Rectangle {
+                                // Album - Video Image
+                                Item {
                                     id: albumArt
                                     width: 75
                                     height: 55
-                                    color: "#1A0009"
-                                    radius: 4
+
+                                    Image {
+                                        id: albumArtImg
+                                        anchors.fill: parent
+                                        source: mediaCard.artUrl
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                        cache: false
+                                        visible: false
+                                    }
+
+                                    Rectangle {
+                                        id: albumArtMask
+                                        anchors.fill: parent
+                                        radius: 8
+                                        visible: false
+                                    }
+
+                                    OpacityMask {
+                                        anchors.fill: albumArtImg
+                                        source: albumArtImg
+                                        maskSource: albumArtMask
+                                    }
+
+                                    // Fallback background when no image
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: 8
+                                        color: "#1A0009"
+                                        visible: mediaCard.artUrl === "" || albumArtImg.status !== Image.Ready
+                                        z: -1
+                                    }
                                 }
 
                                 // Media Player Info (name, artists, platform & State)
@@ -474,7 +692,7 @@ PlasmoidItem {
                                     y: 3
                                     spacing: 1
                                     Text {
-                                        text: "72 Seasons"
+                                        text: mediaCard.title
                                         color: "white"
                                         font.pointSize: 10
                                         width: 160
@@ -482,7 +700,7 @@ PlasmoidItem {
                                     }
 
                                     Text {
-                                        text: "Metallica"
+                                        text: mediaCard.artist
                                         color: "#B0B0B0"
                                         font.pointSize: 8
                                         width: 160
@@ -490,7 +708,7 @@ PlasmoidItem {
                                     }
 
                                     Text {
-                                        text: "Spotify"
+                                        text: mediaCard.player
                                         color: "#9BFA78"
                                         font.pointSize: 8
                                     }
@@ -505,11 +723,13 @@ PlasmoidItem {
                                 Row {
                                     width: parent.width
                                     Text {
-                                        width: 78
-                                        text: "99:99:99"
+                                        text: mediaCard.formatTime(
+                                            progressBar.pressed ? progressBar.value : mediaCard.position
+                                        )
                                         color: "white"
                                         horizontalAlignment: Text.AlignLeft
                                         font.pointSize: 8
+                                        width: 78
                                     }
 
                                     //Media Controls
@@ -517,31 +737,113 @@ PlasmoidItem {
                                         spacing: 15
                                         topPadding: 2
 
-                                        Image { source: "icons/MediaPlayer/skip-back.svg"; width: 14; height: 14 }
-                                        Image { source: "icons/MediaPlayer/pause.svg";    width: 14; height: 14 }
-                                        Image { source: "icons/MediaPlayer/skip-forward.svg"; width: 14; height: 14 }
+                                        Image {
+                                            source: "icons/MediaPlayer/skip-back.svg";
+                                            width: 14
+                                            height: 14
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: systemSource.connectSource("playerctl -p " + mediaCard.activePlayer + " previous")
+                                            }
+
+                                        }
+                                        Image {
+                                            source: mediaCard.isPlaying ? "icons/MediaPlayer/pause.svg" : "icons/MediaPlayer/play.svg"
+                                            width: 14;
+                                            height: 14
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: systemSource.connectSource("playerctl -p " + mediaCard.activePlayer + " play-pause")
+                                            }
+
+                                        }
+                                        Image {
+                                            source: "icons/MediaPlayer/skip-forward.svg";
+                                            width: 14;
+                                            height: 14
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: systemSource.connectSource("playerctl -p " + mediaCard.activePlayer + " next")
+                                            }
+                                        }
+
+
                                     }
 
                                     Text {
-                                        width: 78
-                                        text: "99:99:99"
+                                        text: mediaCard.title === "Nothing Playing" ? "--:--" : mediaCard.formatTime(mediaCard.duration)
                                         color: "white"
                                         horizontalAlignment: Text.AlignRight
                                         font.pointSize: 8
+                                        width: 78
                                     }
                                 }
-                                Rectangle {
+                                Slider {
+                                    id: progressBar
                                     width: parent.width
                                     height: 12
-                                    radius: 8
-                                    color: "#140009"
+                                    from: 0
+                                    to: mediaCard.duration
+                                    value: mediaCard.position
 
-                                    Rectangle {
-                                        width: parent.width * 0.2   // 1:30 of 7:30 ≈ 20%
-                                        height: parent.height
-                                        radius: 8
-                                        color: "#3DDC6A"
+                                    Connections {
+                                        target: mediaCard
+                                        function onPositionChanged(){
+                                            if(!progressBar.pressed){
+                                                progressBar.value = mediaCard.position
+                                            }
+                                        }
+
+                                        function onDurationChanged() {
+                                            progressBar.to = mediaCard.duration
+                                        }
                                     }
+
+                                    onPressedChanged: {
+                                        if (!pressed) {
+                                            mediaCard.position = value
+
+                                            var seconds = value / 1000000
+
+                                            systemSource.connectSource(
+                                                "playerctl -p " + mediaCard.activePlayer +
+                                                " position " + seconds
+                                            )
+
+                                            seekRefresh.restart()
+                                      }
+                                    }
+                                    Binding {
+                                        target: progressBar
+                                        property: "value"
+                                        value: mediaCard.position
+                                        when: !progressBar.pressed
+                                    }
+
+
+                                    background: Rectangle {
+                                        x: progressBar.leftPadding
+                                        y: progressBar.topPadding + progressBar.availableHeight / 2 - height / 2
+                                        width: progressBar.availableWidth
+                                        height: 12
+                                        radius: 8
+                                        color: "#140009"
+
+                                        Rectangle {
+                                            width: progressBar.visualPosition * parent.width
+                                            height: parent.height
+                                            radius: 8
+                                            color: "#3DDC6A"
+                                        }
+                                    }
+
+                                    handle: Item { width: 0; height: 0 } // invisible handle
                                 }
                             }
                         }
@@ -556,26 +858,40 @@ PlasmoidItem {
 
                     //  DnD
                     Rectangle {
+                        id: dndCard
+
                         color: "#2E0015"
                         height: 130
                         width: 97
                         Layout.preferredWidth: 97
 
+                        property bool dndActive: false
+
+                        // Refresh state every 1/2 of second and on startup
+                        Timer {
+                            interval: 500
+                            running: true
+                            repeat: true
+                            triggeredOnStart: true
+                            onTriggered: dndCard.dndActive = notifSettings.notificationsInhibitedUntil > new Date()
+                        }
+
+
+
+                        // Content
                         ColumnLayout {
                             anchors.fill: parent
                             spacing: 6
 
                             Image {
-                                source: "icons/DnD/bell-off.svg"
-                                width: 60
-                                height: 60
+                                source: dndCard.dndActive ? "icons/DnD/bell-off.svg" : "icons/DnD/bell.svg"
+                                width: 60; height: 60
                                 sourceSize: Qt.size(width, height)
-                                visible: true
                                 Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
                             }
 
                             Text {
-                                text: "DnD: on"
+                                text: dndCard.dndActive ? "DnD: On" : "DnD: Off"
                                 color: "white"
                                 font.pointSize: 8
                                 horizontalAlignment: Text.AlignHCenter
@@ -583,21 +899,65 @@ PlasmoidItem {
                                 Layout.topMargin: -35
                             }
                         }
+
+                        // The interaction logic of the panel
+                        MouseArea {
+
+
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                console.log("DnD clicked, current state:", dndCard.dndActive)
+                                if (notifSettings.notificationsInhibitedUntil > new Date()) {
+                                    notifSettings.notificationsInhibitedUntil = new Date(0)
+                                } else {
+                                    var future = new Date()
+                                    future.setFullYear(future.getFullYear() + 10)
+                                    notifSettings.notificationsInhibitedUntil = future
+                                }
+                                notifSettings.save()    // saves to config
+                            }
+                        }
                     }
 
                     //  Mic Mute
                     Rectangle {
+                        id: micCard
+
                         color: "#2E0015"
                         height: 130
                         width: 97
                         Layout.preferredWidth: 97
 
+                        property bool isMuted
+
+                        //checks for mic status once per 2 seconds
+                        Timer{
+                            interval: 2000
+                            running: true
+                            repeat: true
+                            triggeredOnStart: true
+                            onTriggered: micSource.connectSource("pactl get-source-mute @DEFAULT_SOURCE@")
+                        }
+
+                        P5Support.DataSource{
+                            id: micSource
+                            engine: "executable"
+                            connectedSources: []
+                            onNewData: (sourceName, data) => {
+                                var out = data["stdout"].trim()
+                                micCard.isMuted = out.includes("yes")
+                                disconnectSource(sourceName)
+                            }
+                        }
+
                         ColumnLayout {
                             anchors.fill: parent
                             spacing: 6
 
+                            //icon handle
                             Image {
-                                source: "icons/Mic/mic-on.svg"
+                                source: micCard.isMuted ? "icons/Mic/mic-on.svg" : "icons/Mic/mic-off.svg"
                                 width: 60
                                 height: 60
                                 sourceSize: Qt.size(width, height)
@@ -605,13 +965,26 @@ PlasmoidItem {
                                 Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
                             }
 
+                            //state
                             Text {
-                                text: "Mic: Enabled"
+                                text: micCard.isMuted ? "Mic: Enabled" : "Mic: Disabled"
                                 color: "white"
                                 font.pointSize: 8
                                 horizontalAlignment: Text.AlignHCenter
                                 Layout.alignment: Qt.AlignHCenter
                                 Layout.topMargin: -35
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                var cmd = micCard.isMuted
+                                    ? "pactl set-source-mute @DEFAULT_SOURCE@ 0"
+                                    : "pactl set-source-mute @DEFAULT_SOURCE@ 1"
+                                micCard.isMuted = !micCard.isMuted
+                                systemSource.connectSource(cmd)
                             }
                         }
                     }
@@ -685,6 +1058,10 @@ PlasmoidItem {
                                             border.width: 1
                                         }
                                     }
+
+                                    onMoved: {
+                                        systemSource.connectSource("pactl set-sink-volume @DEFAULT_SINK@ " + Math.round(value) + "%")
+                                    }
                                 }
                             }
 
@@ -734,6 +1111,7 @@ PlasmoidItem {
                                             color: "#E6096C"
                                         }
                                     }
+
                                     handle: Item {
                                         x: brightnessBar.leftPadding + brightnessBar.visualPosition * (brightnessBar.availableWidth - width)
                                         y: brightnessBar.topPadding + brightnessBar.availableHeight / 2 - height / 2
@@ -748,6 +1126,11 @@ PlasmoidItem {
                                             border.color: "#ffffff"
                                             border.width: 1
                                         }
+                                    }
+
+                                    onMoved: {
+                                        var raw = Math.round((value / 100) * sliderSource.brightnessMaxVal)
+                                        systemSource.connectSource("qdbus6 org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl org.kde.Solid.PowerManagement.Actions.BrightnessControl.setBrightness " + raw)
                                     }
                                 }
                             }
@@ -945,21 +1328,65 @@ PlasmoidItem {
                     id: bashCard
 
                     width: widgetMainWindow.cardWidth
-                    height : 150
+                    height: 150
                     color: "#2E0015"
                     radius: 0
-
 
                     property string promptUser: "User"
                     property string promptHost: "ThisPC"
                     property string currentPath: "~"
                     property var outputLines: []
 
+                    // Runs shell commands and appends their output to outputLines
+                    P5Support.DataSource {
+                        id: promptSource
+                        engine: "executable"
+                        connectedSources: []
+
+                        onNewData: (sourceName, data) => {
+                            var stdout = data["stdout"].trim()
+                            var stderr = data["stderr"].trim()
+
+                            // Intercept startup commands — set prompt, don't print output
+                            if (sourceName === "whoami") {
+                                bashCard.promptUser = stdout
+                                disconnectSource(sourceName)
+                                return
+                            }
+                            if (sourceName === "hostname") {
+                                bashCard.promptHost = stdout
+                                disconnectSource(sourceName)
+                                return
+                            }
+
+                            // Everything else goes to the output stream
+                            if (stdout.length > 0) {
+                                var lines = bashCard.outputLines.slice()
+                                lines.push(stdout)
+                                bashCard.outputLines = lines
+                            }
+                            if (stderr.length > 0) {
+                                var lines = bashCard.outputLines.slice()
+                                lines.push("error: " + stderr)
+                                bashCard.outputLines = lines
+                            }
+
+                            disconnectSource(sourceName)
+                        }
+
+                        Component.onCompleted: {
+                            connectSource("whoami")
+                            connectSource("hostname")
+                        }
+
+                    }
+
                     ColumnLayout {
                         anchors.fill: parent
                         anchors.margins: Kirigami.Units.smallSpacing * 2
-                        spacing: Kirigami.Units.smallSpacing
+                        spacing: 0
 
+                        // Header row (Bash label + clear button)
                         RowLayout {
                             Layout.fillWidth: true
 
@@ -972,60 +1399,79 @@ PlasmoidItem {
 
                             PlasmaComponents3.ToolButton {
                                 icon.name: "edit-clear-history"
-                                onClicked: bashCard.outputLines = []
-                            }
-                        }
-
-                        ScrollView {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-
-                            background: Item{}
-
-                            ColumnLayout {
-                                width: parent.width
-                                spacing: 2
-
-                                Repeater {
-                                    model: bashCard.outputLines
-                                    delegate: PlasmaComponents3.Label {
-                                        text: modelData
-                                        color: "#e0a458"
-                                        font.family: "monospace"
-                                        wrapMode: Text.Wrap
-                                        Layout.fillWidth: true
-                                    }
+                                onClicked: {
+                                    bashCard.outputLines = []
                                 }
                             }
                         }
 
+                        // Input line
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: Kirigami.Units.smallSpacing
+                            spacing: 4
 
-                            PlasmaComponents3.Label {
+                            Text {
                                 text: bashCard.promptUser + "@" + bashCard.promptHost + ":" + bashCard.currentPath + "$"
-                                color: "#e0a458"
+                                color: "#6AED0C"
                                 font.family: "monospace"
+                                font.pixelSize: 10
                             }
 
                             PlasmaComponents3.TextField {
                                 id: commandInput
                                 Layout.fillWidth: true
-                                placeholderText: "type a command..."
+                                placeholderText: ""
                                 font.family: "monospace"
+                                font.pixelSize: 10
                                 color: "#e0a458"
 
-                                onAccepted: {
+                                // Blend into the terminal — no border, no background
+                                background: Item {}
 
-                                    bashCard.outputLines.push(
-                                        bashCard.promptUser + "@" + bashCard.promptHost + "$ " + text
-                                    )
-                                    // runCommand(text) — hook this up to PlasmaCore.Process + Timer
+                                onAccepted: {
+                                    var cmd = text.trim()
+                                    if (cmd.length === 0) return
+
+                                    var lines = bashCard.outputLines.slice()
+                                    lines.push(bashCard.promptUser + "@" + bashCard.promptHost + ":~$ " + cmd)
+                                    bashCard.outputLines = lines
+
+                                    promptSource.connectSource(cmd)   // was bashSource
+
                                     text = ""
                                 }
                             }
                         }
+
+                        // Output screen with ListView auto-scrolls to bottom on new lines
+                        ListView {
+                            id: outputView
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            model: bashCard.outputLines
+                            spacing: 0
+
+                            // No background — inherit parent card color
+                            Rectangle {
+                                anchors.fill: parent
+                                color: "transparent"
+                            }
+
+                            delegate: Text {
+                                width: outputView.width
+                                text: modelData
+                                color: "#e0a458"
+                                font.family: "monospace"
+                                font.pixelSize: 8
+                                wrapMode: Text.Wrap
+                            }
+
+                            // Auto-scroll to bottom whenever a new line is added
+                            onCountChanged: positionViewAtEnd()
+                        }
+
+
                     }
                 }
             }
