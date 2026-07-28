@@ -20,6 +20,137 @@ PlasmoidItem {
 
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
 
+    // ── Persistent media state ──────────────────────────────────────────────
+    // Lives at PlasmoidItem level so it survives popup open/close cycles.
+    // fullRepresentation reads from here and shows data instantly on open.
+    QtObject {
+        id: mediaState
+
+        property string activePlayer: ""
+        property string title:        "Nothing Playing"
+        property string artist:       ""
+        property string album:        ""
+        property string player:       ""
+        property string artUrl:       ""
+        property string videoUrl:     ""
+        property bool   isPlaying:    false
+        property real   position:     0       // microseconds
+        property real   duration:     0       // microseconds
+        property real   progress:     duration > 0 ? position / duration : 0
+        property bool   hasPosition:  position > 1000000
+        property int    artRefreshTick: 0
+
+        function getThumbnail(url) {
+            var idx = url.indexOf("v=")
+            if (idx === -1) return ""
+            var id = url.substring(idx + 2)
+            var amp = id.indexOf("&")
+            if (amp !== -1) id = id.substring(0, amp)
+            return id !== "" ? "https://img.youtube.com/vi/" + id + "/mqdefault.jpg" : ""
+        }
+
+        // Converts microseconds to m:ss
+        function formatTime(us) {
+            var s = Math.floor(us / 1000000)
+            var m = Math.floor(s / 60)
+            s = s % 60
+            return m + ":" + (s < 10 ? "0" : "") + s
+        }
+    }
+
+    P5Support.DataSource {
+        id: mediaSource
+        engine: "executable"
+        connectedSources: []
+
+        onNewData: (sourceName, data) => {
+            var out = data["stdout"].trim()
+
+            if (sourceName.includes("metadata --format")) {
+                var parts = out.split("|")
+                if (parts[0] === "") { disconnectSource(sourceName); return }
+
+                mediaState.activePlayer = parts[0] || ""
+                mediaState.title        = parts[1] || "Nothing Playing"
+                mediaState.artist       = parts[2] || ""
+                mediaState.player       = parts[0] || ""
+                mediaState.videoUrl     = parts[5] || ""
+
+                var art     = parts[4] || ""
+                var pageUrl = parts[5] || ""
+
+                // Firefox sets artUrl to the watch page — not an image, ignore it
+                if (art.includes("youtube.com/watch") || art.includes("youtu.be/"))
+                    art = ""
+
+                // Derive thumbnail from the page URL instead
+                if (art === "" && pageUrl !== "")
+                    art = mediaState.getThumbnail(pageUrl)
+
+                if (art !== "") mediaState.artUrl = art
+            }
+            if (sourceName.includes("playerctl status")) {
+                mediaState.isPlaying = out === "Playing"
+            }
+            if (sourceName.includes("playerctl metadata mpris:length")) {
+                var len = parseFloat(out)
+                if (!isNaN(len) && len > 0) mediaState.duration = len
+            }
+            if (sourceName.includes("playerctl position")) {
+                var sec = parseFloat(out)
+                if (!isNaN(sec) && sec >= 0) mediaState.position = sec * 1000000
+            }
+
+            disconnectSource(sourceName)
+        }
+
+        function refresh() {
+            connectSource("playerctl metadata --format '{{playerName}}|{{title}}|{{artist}}|{{album}}|{{mpris:artUrl}}|{{xesam:url}}'")
+            connectSource("playerctl status")
+            connectSource("playerctl metadata mpris:length")
+            connectSource("playerctl position")
+        }
+
+        // Fetch immediately so data is ready before the popup is ever opened
+        Component.onCompleted: refresh()
+    }
+
+    // Main poll — keeps state fresh every second in the background
+    Timer {
+        interval: 1000
+        running: true
+        repeat: true
+        onTriggered: mediaSource.refresh()
+    }
+
+    // Fallback position tick for players that don't expose position via MPRIS
+    Timer {
+        interval: 1000
+        running: mediaState.isPlaying && !mediaState.hasPosition
+        repeat: true
+        onTriggered: {
+            if (!mediaState.hasPosition)
+                mediaState.position += 1000000
+        }
+    }
+
+    // Thumbnail cache-buster — forces a re-fetch of the image every 30 seconds
+    Timer {
+        interval: 30000
+        running: true
+        repeat: true
+        onTriggered: mediaState.artRefreshTick++
+    }
+
+    // One-shot after a seek to re-sync position from playerctl
+    Timer {
+        id: seekRefresh
+        interval: 200
+        repeat: false
+        onTriggered: mediaSource.refresh()
+    }
+    // ───────────────────────────────────────────────────────────────────────
+
     fullRepresentation: Item {
         id: fullRepItem
         implicitWidth: backgroundRect.width
@@ -141,6 +272,7 @@ PlasmoidItem {
                                 Component.onCompleted: exec("whoami")
                             }
 
+                            // pfp image
                             Image {
                                 id: avatarImg
                                 anchors.fill: parent
@@ -278,7 +410,6 @@ PlasmoidItem {
                         }
 
                         Item { Layout.fillWidth: true }
-
 
                     }
                     // power button
@@ -493,7 +624,7 @@ PlasmoidItem {
                         }
                     }
 
-                    //                  Media Player
+                    //              Media Player
                     Rectangle {
                         id: mediaCard
 
@@ -503,141 +634,14 @@ PlasmoidItem {
                         radius: 0
                         color: "#2E0015"
 
-                        property string artUrl: ""
-                        property string videoUrl: ""
-                        property string activePlayer: ""
-
-                        property string title: "Nothing Playing"
-                        property string artist: ""
-                        property string album: ""
-                        property string player: ""
-                        property bool isPlaying: false
-                        property real position: 0      // Ms
-                        property real duration: 0      // Ms
-                        property real progress: duration > 0 ? position / duration : 0
-
-                        property bool hasPosition: position > 1000000
-
-                        function getThumbnail(url){
-                            var id = ""
-                            var idx = url.indexOf("v=")
-                            if (idx !== -1) {
-                                id = url.substring(idx + 2)
-                                var amp = id.indexOf("&")
-                                if (amp !== -1) id = id.substring(0, amp)
-                            }
-                            if (id !== "") {
-                                return "https://img.youtube.com/vi/" + id + "/mqdefault.jpg"
-                            }
-                            return ""
-                        }
-
-                        //Converts Ms to Minutes : Seconds format
-                        function formatTime(us){
-                            var s = Math.floor(us / 1000000)
-                            var m = Math.floor(s / 60)
-                            s = s % 60
-
-                            return m + ":" + (s < 10 ? "0" : "") + s
-                        }
-
-                        P5Support.DataSource{
-                            id: mediaSource
-                            engine: "executable"
-                            connectedSources: []
-                            onNewData: (sourceName, data) => {
-                                var out = data["stdout"].trim()
-                                //console.log("sourceName:", sourceName, "| out:", out)  // add this
-
-                                if (sourceName.includes("metadata --format")) {
-                                    var parts = out.split("|")
-                                    if (parts[0] === "") return
-
-                                    mediaCard.activePlayer = parts[0] || ""
-                                    mediaCard.title  = parts[1] || "Nothing Playing"
-                                    mediaCard.artist = parts[2] || ""
-                                    mediaCard.player = parts[0] || ""
-                                    mediaCard.videoUrl = parts[5] || ""
-
-                                    var art = parts[4] || ""
-                                    var pageUrl = parts[5] || ""
-
-                                    // Firefox sets artUrl to the watch page URL, not an image — ignore it
-                                    if (art.includes("youtube.com/watch") || art.includes("youtu.be/")) {
-                                        art = ""
-                                    }
-
-                                    // Derive thumbnail from page URL
-                                    if (art === "" && pageUrl !== "") {
-                                        art = mediaCard.getThumbnail(pageUrl)
-                                    }
-
-                                    if (art !== "") mediaCard.artUrl = art
-                                }
-                                if (sourceName.includes("playerctl status")) {
-                                    mediaCard.isPlaying = out === "Playing"
-                                }
-                                if (sourceName.includes("playerctl metadata mpris:length")) {
-                                    var len = parseFloat(out)
-
-                                    if (!isNaN(len) && len > 0) {
-                                        mediaCard.duration = len
-                                    }
-                                }
-                                if (sourceName.includes("playerctl position")) {
-                                    var sec = parseFloat(out)
-
-                                    if (!isNaN(sec)) {
-                                        mediaCard.position = sec * 1000000
-                                    }
-                                }
-                                disconnectSource(sourceName)
-                            }
-
-                            function refresh() {
-                                connectSource("playerctl metadata --format '{{playerName}}|{{title}}|{{artist}}|{{album}}|{{mpris:artUrl}}|{{xesam:url}}'")
-                                connectSource("playerctl status")
-                                connectSource("playerctl metadata mpris:length")
-                                connectSource("playerctl position")
+                        // Reset position when track changes
+                        Connections {
+                            target: mediaState
+                            function onTitleChanged() {
+                                if (!mediaState.hasPosition)
+                                    mediaState.position = 0
                             }
                         }
-
-
-                        Timer {
-                            interval: 1000
-                            running: true
-                            repeat: true
-                            triggeredOnStart: true
-                            onTriggered: mediaSource.refresh()
-                        }
-
-                        // Refresh every Second
-                        Timer{
-                            interval: 1000
-                            running: mediaCard.isPlaying && !mediaCard.hasPosition
-                            repeat: true
-                            onTriggered: {
-                                if (!mediaCard.hasPosition) {
-                                    mediaCard.position += 1000000  // add 1 second in microseconds
-                                }
-                            }
-                        }
-
-                        Timer {
-                            id: seekRefresh
-                            interval: 200
-                            repeat: false
-
-                            onTriggered: mediaSource.refresh()
-                        }
-
-                        onTitleChanged: {
-                            if (!mediaCard.hasPosition) {
-                                mediaCard.position = 0
-                            }
-                        }
-                        onArtUrlChanged: console.log("artUrl changed to:", mediaCard.artUrl)
-
 
                         Column {
                             anchors.fill: parent
@@ -654,10 +658,14 @@ PlasmoidItem {
                                     width: 75
                                     height: 55
 
+
                                     Image {
                                         id: albumArtImg
                                         anchors.fill: parent
-                                        source: mediaCard.artUrl
+                                        // ?_r=N cache-busts the URL every 30s so QML re-fetches it
+                                        source: mediaState.artUrl !== ""
+                                            ? mediaState.artUrl + "?_r=" + mediaState.artRefreshTick
+                                            : ""
                                         fillMode: Image.PreserveAspectCrop
                                         asynchronous: true
                                         cache: false
@@ -682,7 +690,7 @@ PlasmoidItem {
                                         anchors.fill: parent
                                         radius: 8
                                         color: "#1A0009"
-                                        visible: mediaCard.artUrl === "" || albumArtImg.status !== Image.Ready
+                                        visible: mediaState.artUrl === "" || albumArtImg.status !== Image.Ready
                                         z: -1
                                     }
                                 }
@@ -692,7 +700,7 @@ PlasmoidItem {
                                     y: 3
                                     spacing: 1
                                     Text {
-                                        text: mediaCard.title
+                                        text: mediaState.title
                                         color: "white"
                                         font.pointSize: 10
                                         width: 160
@@ -700,7 +708,7 @@ PlasmoidItem {
                                     }
 
                                     Text {
-                                        text: mediaCard.artist
+                                        text: mediaState.artist
                                         color: "#B0B0B0"
                                         font.pointSize: 8
                                         width: 160
@@ -708,23 +716,24 @@ PlasmoidItem {
                                     }
 
                                     Text {
-                                        text: mediaCard.player
+                                        text: mediaState.player
                                         color: "#9BFA78"
                                         font.pointSize: 8
                                     }
                                 }
                             }
 
-                            // Media Progress bar
+                            // Media Control bar
                             Column {
                                 width: parent.width
                                 spacing: 2
 
                                 Row {
                                     width: parent.width
+                                    //current time of media
                                     Text {
-                                        text: mediaCard.formatTime(
-                                            progressBar.pressed ? progressBar.value : mediaCard.position
+                                        text: mediaState.formatTime(
+                                            progressBar.pressed ? progressBar.value : mediaState.position
                                         )
                                         color: "white"
                                         horizontalAlignment: Text.AlignLeft
@@ -745,19 +754,31 @@ PlasmoidItem {
                                             MouseArea {
                                                 anchors.fill: parent
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: systemSource.connectSource("playerctl -p " + mediaCard.activePlayer + " previous")
+                                                onClicked: systemSource.connectSource("playerctl -p " + mediaState.activePlayer + " previous")
+
+                                            HoverHandler{
+                                                    id: hover
+                                                    onHoveredChanged: {
+                                                        if(hovered){
+                                                            scale = 1.2
+                                                        }else {
+                                                            scale = 1
+                                                        }
+
+                                                    }
+                                                }
                                             }
 
                                         }
                                         Image {
-                                            source: mediaCard.isPlaying ? "icons/MediaPlayer/pause.svg" : "icons/MediaPlayer/play.svg"
+                                            source: mediaState.isPlaying ? "icons/MediaPlayer/pause.svg" : "icons/MediaPlayer/play.svg"
                                             width: 14;
                                             height: 14
 
                                             MouseArea {
                                                 anchors.fill: parent
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: systemSource.connectSource("playerctl -p " + mediaCard.activePlayer + " play-pause")
+                                                onClicked: systemSource.connectSource("playerctl -p " + mediaState.activePlayer + " play-pause")
                                             }
 
                                         }
@@ -769,15 +790,16 @@ PlasmoidItem {
                                             MouseArea {
                                                 anchors.fill: parent
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: systemSource.connectSource("playerctl -p " + mediaCard.activePlayer + " next")
+                                                onClicked: systemSource.connectSource("playerctl -p " + mediaState.activePlayer + " next")
                                             }
                                         }
 
 
                                     }
 
+                                    //duration of media
                                     Text {
-                                        text: mediaCard.title === "Nothing Playing" ? "--:--" : mediaCard.formatTime(mediaCard.duration)
+                                        text: mediaState.title === "Nothing Playing" ? "--:--" : mediaState.formatTime(mediaState.duration)
                                         color: "white"
                                         horizontalAlignment: Text.AlignRight
                                         font.pointSize: 8
@@ -789,40 +811,39 @@ PlasmoidItem {
                                     width: parent.width
                                     height: 12
                                     from: 0
-                                    to: mediaCard.duration
-                                    value: mediaCard.position
+                                    to: mediaState.duration
+                                    value: mediaState.position
 
                                     Connections {
-                                        target: mediaCard
-                                        function onPositionChanged(){
-                                            if(!progressBar.pressed){
-                                                progressBar.value = mediaCard.position
-                                            }
+                                        target: mediaState
+                                        function onPositionChanged() {
+                                            if (!progressBar.pressed)
+                                                progressBar.value = mediaState.position
                                         }
-
                                         function onDurationChanged() {
-                                            progressBar.to = mediaCard.duration
+                                            progressBar.to = mediaState.duration
                                         }
                                     }
 
                                     onPressedChanged: {
                                         if (!pressed) {
-                                            mediaCard.position = value
+                                            mediaState.position = value
 
                                             var seconds = value / 1000000
 
                                             systemSource.connectSource(
-                                                "playerctl -p " + mediaCard.activePlayer +
+                                                "playerctl -p " + mediaState.activePlayer +
                                                 " position " + seconds
                                             )
 
                                             seekRefresh.restart()
-                                      }
+                                        }
                                     }
+
                                     Binding {
                                         target: progressBar
                                         property: "value"
-                                        value: mediaCard.position
+                                        value: mediaState.position
                                         when: !progressBar.pressed
                                     }
 
@@ -902,7 +923,6 @@ PlasmoidItem {
 
                         // The interaction logic of the panel
                         MouseArea {
-
 
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
@@ -1106,8 +1126,8 @@ PlasmoidItem {
                                             width: brightnessBar.visualPosition * (brightnessBar.availableWidth - 12) + 6
                                             height: parent.height
                                             radius: 12
-                                            topRightRadius: volumeBar.value === 100 ? 30 : 12
-                                            bottomRightRadius: volumeBar.value === 100 ? 30 : 12
+                                            topRightRadius: brightnessBar.value === 100 ? 30 : 12
+                                            bottomRightRadius: brightnessBar.value === 100 ? 30 : 12
                                             color: "#E6096C"
                                         }
                                     }
@@ -1146,112 +1166,165 @@ PlasmoidItem {
 
                     // System Information Tab
                     Rectangle {
-                        id: root
+                        id: sysRoot
 
-                        property real cpuUsage: 0.5        // 0.0 - 1.0
-                        property real ramUsedGib: 2.5
-                        property int ramTotalGib: 16
-                        property int uploadMbps: 300
-                        property int downloadMbps: 300
+                        property real cpuUsage:      0.0
+                        property real ramUsedGib:    0.0
+                        property int  ramTotalGib:   0
+                        property real uploadSpeed:   0
+                        property real downloadSpeed: 0
+                        property var  _cpuPrev:      null
+                        property var  _netPrev:      null
+
+                        function formatSpeed(bytesPerSec) {
+                            if (bytesPerSec < 1024)       return bytesPerSec.toFixed(0) + " B/s"
+                            if (bytesPerSec < 1048576)    return (bytesPerSec / 1024).toFixed(1) + " KB/s"
+                            if (bytesPerSec < 1073741824) return (bytesPerSec / 1048576).toFixed(1) + " MB/s"
+                            return (bytesPerSec / 1073741824).toFixed(2) + " GB/s"
+                        }
 
                         Layout.fillWidth: true
                         implicitHeight: 124
                         color: "#2E0015"
 
+                        P5Support.DataSource {
+                            id: sysStatsSource
+                            engine: "executable"
+                            connectedSources: []
+
+                            onNewData: (sourceName, data) => {
+                                var out = data["stdout"].trim()
+
+                                if (sourceName === "cat /proc/stat") {
+                                    var tok     = out.split("\n")[0].split(/\s+/)
+                                    var user    = parseInt(tok[1]), nice = parseInt(tok[2])
+                                    var sys     = parseInt(tok[3]), idle = parseInt(tok[4])
+                                    var iowt    = parseInt(tok[5]), irq  = parseInt(tok[6])
+                                    var sirq    = parseInt(tok[7])
+                                    var total   = user + nice + sys + idle + iowt + irq + sirq
+                                    var idleSum = idle + iowt
+
+                                    if (sysRoot._cpuPrev !== null) {
+                                        var dTotal = total   - sysRoot._cpuPrev.total
+                                        var dIdle  = idleSum - sysRoot._cpuPrev.idle
+                                        if (dTotal > 0)
+                                            sysRoot.cpuUsage = (dTotal - dIdle) / dTotal
+
+                                    }
+                                    sysRoot._cpuPrev = { total: total, idle: idleSum }
+                                }
+
+                                if (sourceName === "cat /proc/meminfo") {
+                                    var memTotal = 0, memAvail = 0
+                                    out.split("\n").forEach(function(line) {
+                                        if (line.startsWith("MemTotal:"))
+                                            memTotal = parseInt(line.split(/\s+/)[1])
+                                        if (line.startsWith("MemAvailable:"))
+                                            memAvail = parseInt(line.split(/\s+/)[1])
+                                    })
+                                    if (memTotal > 0) {
+                                        sysRoot.ramUsedGib  = (memTotal - memAvail) / 1048576
+                                        sysRoot.ramTotalGib = Math.round(memTotal / 1048576)
+                                    }
+                                }
+
+                                if (sourceName === "cat /proc/net/dev") {
+                                    var now = Date.now()
+                                    var totalRx = 0, totalTx = 0
+                                    var lines = out.split("\n")
+                                    for (var i = 2; i < lines.length; i++) {
+                                        var parts = lines[i].trim().split(/\s+/)
+                                        if (parts.length < 10 || parts[0] === "lo:") continue
+                                        totalRx += parseInt(parts[1])
+                                        totalTx += parseInt(parts[9])
+                                    }
+                                    if (sysRoot._netPrev !== null) {
+                                        var dt = (now - sysRoot._netPrev.time) / 1000
+                                        if (dt > 0) {
+                                            sysRoot.downloadSpeed = Math.max(0, (totalRx - sysRoot._netPrev.rx) / dt)
+                                            sysRoot.uploadSpeed   = Math.max(0, (totalTx - sysRoot._netPrev.tx) / dt)
+                                        }
+                                    }
+                                    sysRoot._netPrev = { rx: totalRx, tx: totalTx, time: now }
+                                }
+
+                                disconnectSource(sourceName)
+                            }
+
+                            function refresh() {
+                                connectSource("cat /proc/stat")
+                                connectSource("cat /proc/meminfo")
+                                connectSource("cat /proc/net/dev")
+                            }
+                        }
+
+                        Timer {
+                            interval: 2000
+                            running: true
+                            repeat: true
+                            triggeredOnStart: true
+                            onTriggered: sysStatsSource.refresh()
+                        }
+
                         ColumnLayout {
-                            id: contentLayout
                             anchors.fill: parent
                             anchors.margins: 12
                             spacing: 8
 
-                            // CPU usage row
+                            // CPU
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 5
-
-                                Image {
-                                    Layout.preferredWidth: 18
-                                    Layout.preferredHeight: 18
-                                    source: "icons/SystemInfo/cpu.svg"
-                                }
-
-                                Text {
-                                    text: "CPU usage:"
-                                    color: "white"
+                                Image { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "icons/SystemInfo/cpu.svg" }
+                                Text { text: "CPU usage:";
+                                    color: "white";
                                     font.pixelSize: 13
                                 }
-
-                                Item { Layout.fillWidth: true } // pushes the value to the right edge
-
+                                Item { Layout.fillWidth: true }
                                 Text {
-                                    // Removed the unused anchors.right/verticalCenter here —
-                                    // they were dead code: Text is a RowLayout child, and the
-                                    // Item.fillWidth spacer above already pushes this to the right.
-                                    text: Math.round(root.cpuUsage * 100) + "%"
-                                    color: "white"
+                                    text: Math.round(sysRoot.cpuUsage * 100) + "%";
+                                    color:  if(Math.round(sysRoot.cpuUsage * 100) >= 80){
+                                        "#FF6E6E"
+                                    }else{
+                                        "white"
+                                    }
                                     font.pixelSize: 13
                                 }
                             }
 
-                            // RAM usage row
+                            // RAM
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 5
-
-                                Image {
-                                    Layout.preferredWidth: 18
-                                    Layout.preferredHeight: 18
-                                    source: "icons/SystemInfo/memory-stick.svg"
-                                }
-
-                                Text {
-                                    text: "Ram usage:"
-                                    color: "white"
-                                    font.pixelSize: 13
-                                }
-
-                                Item { width: 25 }
-
-                                Text {
-                                    text: root.ramUsedGib.toFixed(1) + " / " + root.ramTotalGib + "gib"
-                                    color: "white"
-                                    font.pixelSize: 13
-                                }
+                                Image { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "icons/SystemInfo/memory-stick.svg" }
+                                Text { text: "Ram usage:"; color: "white"; font.pixelSize: 13 }
+                                Item { Layout.fillWidth: true }
+                                Text { text: sysRoot.ramUsedGib.toFixed(1) + " / " + sysRoot.ramTotalGib + " GiB"; color: "white"; font.pixelSize: 13 }
                             }
 
-                            //  Network stats
+                            // Network
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 2
 
                                 RowLayout {
                                     spacing: 5
-                                    Image {
-                                        Layout.preferredWidth: 18
-                                        Layout.preferredHeight: 18
-                                        source: "icons/SystemInfo/ethernet-port.svg"
-                                    }
-                                    Text {
-                                        text: "Network Stats"
-                                        color: "white"
-                                        font.pixelSize: 13
-                                    }
+                                    Image { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "icons/SystemInfo/ethernet-port.svg" }
+                                    Text { text: "Network Stats"; color: "white"; font.pixelSize: 13 }
                                 }
 
                                 RowLayout {
                                     Layout.leftMargin: 35
                                     spacing: 16
-
                                     RowLayout {
                                         spacing: 4
                                         Text { text: "↑"; color: "#5ac8fa"; font.pixelSize: 13 }
-                                        Text { text: root.uploadMbps + "mbps"; color: "#5ac8fa"; font.pixelSize: 13 }
+                                        Text { text: sysRoot.formatSpeed(sysRoot.uploadSpeed); color: "#5ac8fa"; font.pixelSize: 13 }
                                     }
-
                                     RowLayout {
                                         spacing: 4
                                         Text { text: "↓"; color: "#5ac8fa"; font.pixelSize: 13 }
-                                        Text { text: root.downloadMbps + "mbps"; color: "#5ac8fa"; font.pixelSize: 13 }
+                                        Text { text: sysRoot.formatSpeed(sysRoot.downloadSpeed); color: "#5ac8fa"; font.pixelSize: 13 }
                                     }
                                 }
                             }
@@ -1262,20 +1335,68 @@ PlasmoidItem {
                     Rectangle {
                         id: quickAlarmCard
 
-
                         Layout.fillWidth: true
                         implicitHeight: 124
                         color: "#2E0015"
 
-                        property string alarmLabel: "Quick Alarm"
-                        property string alarmTime: "99:99:99"
-                        property bool alarmRunning: false
+                        // ── State ──────────────────────────────────────────────────────────
+                        property string alarmLabel:       "Quick Alarm"
+                        property bool   alarmRunning:     false
+                        property bool   alarmFired:       false
+                        property bool   isEditing:        false   // switches between the two inner views
 
+                        // Time the user last confirmed — never touched by the countdown
+                        property int    setTotalSeconds:  300
+                        // Live value the countdown decrements
+                        property int    remainingSeconds: 300
+
+                        // Auto-formats HH:MM:SS from remainingSeconds
+                        property string alarmTime: {
+                            var h = Math.floor(remainingSeconds / 3600)
+                            var m = Math.floor((remainingSeconds % 3600) / 60)
+                            var s = remainingSeconds % 60
+                            return (h < 10 ? "0" + h : h) + ":"
+                                + (m < 10 ? "0" + m : m) + ":"
+                                + (s < 10 ? "0" + s : s)
+                        }
+
+                        // ── Countdown timer ────────────────────────────────────────────────
+                        Timer {
+                            interval: 1000
+                            running: quickAlarmCard.alarmRunning
+                            repeat: true
+                            onTriggered: {
+                                if (quickAlarmCard.remainingSeconds > 0) {
+                                    quickAlarmCard.remainingSeconds -= 1
+                                } else {
+                                    quickAlarmCard.alarmRunning = false
+                                    quickAlarmCard.alarmFired   = true
+                                    systemSource.connectSource(
+                                        "notify-send 'Ki Station' '" + quickAlarmCard.alarmLabel + "' --icon=alarm-symbolic"
+                                    )
+                                }
+                            }
+                        }
+
+                        // Blink timer — toggles a bool the time label reads its opacity from
+                        Timer {
+                            id: blinkTimer
+                            property bool blinkOn: false
+                            interval: 500
+                            running: quickAlarmCard.alarmFired
+                            repeat: true
+                            onTriggered: blinkOn = !blinkOn
+                            onRunningChanged: if (!running) blinkOn = false
+                        }
+
+                        // ── Alarm view ─────────────────────────────────────────────────────
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: Kirigami.Units.smallSpacing * 2
                             spacing: Kirigami.Units.smallSpacing
+                            visible: !quickAlarmCard.isEditing
 
+                            // Header: label + edit button
                             RowLayout {
                                 Layout.fillWidth: true
 
@@ -1288,20 +1409,21 @@ PlasmoidItem {
 
                                 PlasmaComponents3.ToolButton {
                                     icon.name: "document-edit"
-                                    onClicked: {
-                                        // open alarm management popup/list here
-                                    }
+                                    onClicked: quickAlarmCard.isEditing = true
                                 }
                             }
 
+                            // Countdown display
                             PlasmaComponents3.Label {
                                 text: quickAlarmCard.alarmTime
                                 font.pixelSize: Kirigami.Units.gridUnit * 1.6
                                 font.bold: true
-                                color: "#e0a458"
+                                color: quickAlarmCard.alarmFired ? "#FF6E6E" : "#e0a458"
+                                opacity: blinkTimer.blinkOn ? 0.2 : 1.0
                                 Layout.alignment: Qt.AlignHCenter
                             }
 
+                            // Controls: reset | play/pause
                             RowLayout {
                                 Layout.fillWidth: true
                                 Layout.topMargin: Kirigami.Units.smallSpacing
@@ -1310,13 +1432,97 @@ PlasmoidItem {
                                     Layout.fillWidth: true
                                     icon.name: "dialog-close"
                                     icon.color: "#d9534f"
-                                    onClicked: quickAlarmCard.alarmRunning = false
+                                    onClicked: {
+                                        quickAlarmCard.alarmRunning     = false
+                                        quickAlarmCard.alarmFired       = false
+                                        quickAlarmCard.remainingSeconds = quickAlarmCard.setTotalSeconds
+                                    }
                                 }
 
                                 PlasmaComponents3.ToolButton {
                                     Layout.fillWidth: true
-                                    icon.name: quickAlarmCard.alarmRunning ? "media-playback-pause" : "media-playback-start"
-                                    onClicked: quickAlarmCard.alarmRunning = !quickAlarmCard.alarmRunning
+                                    icon.name: quickAlarmCard.alarmRunning
+                                        ? "media-playback-pause"
+                                        : "media-playback-start"
+                                    enabled: quickAlarmCard.remainingSeconds > 0 || quickAlarmCard.alarmRunning
+                                    onClicked: {
+                                        if (quickAlarmCard.alarmFired) {
+                                            // Dismiss fired alarm and reset
+                                            quickAlarmCard.alarmFired       = false
+                                            quickAlarmCard.remainingSeconds = quickAlarmCard.setTotalSeconds
+                                            return
+                                        }
+                                        quickAlarmCard.alarmRunning = !quickAlarmCard.alarmRunning
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Edit view ──────────────────────────────────────────────────────
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: Kirigami.Units.smallSpacing * 2
+                            spacing: Kirigami.Units.smallSpacing
+                            visible: quickAlarmCard.isEditing
+
+                            // Sync spinbox values to the current set time every time this view opens.
+                            // SpinBox value bindings break on first user interaction, so we do this
+                            // imperatively to ensure the values are always fresh on re-open.
+                            onVisibleChanged: {
+                                if (visible) {
+                                    hourSpin.value   = Math.floor(quickAlarmCard.setTotalSeconds / 3600)
+                                    minuteSpin.value = Math.floor((quickAlarmCard.setTotalSeconds % 3600) / 60)
+                                    secondSpin.value = quickAlarmCard.setTotalSeconds % 60
+                                }
+                            }
+
+                            // Header: title + back button
+                            RowLayout {
+                                Layout.fillWidth: true
+
+                                PlasmaComponents3.Label {
+                                    text: "Set countdown"
+                                    font.pixelSize: Kirigami.Units.gridUnit * 0.7
+                                    color: "#e0c9b8"
+                                    Layout.fillWidth: true
+                                }
+
+                                PlasmaComponents3.ToolButton {
+                                    icon.name: "arrow-left"
+                                    onClicked: quickAlarmCard.isEditing = false
+                                }
+                            }
+
+                            // H / M / S pickers
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                SpinBox { id: hourSpin;   Layout.fillWidth: true; from: 0; to: 23; value: 0 }
+                                PlasmaComponents3.Label { text: "h"; color: "#e0c9b8"; font.pixelSize: 11 }
+
+                                SpinBox { id: minuteSpin; Layout.fillWidth: true; from: 0; to: 59; value: 5 }
+                                PlasmaComponents3.Label { text: "m"; color: "#e0c9b8"; font.pixelSize: 11 }
+
+                                SpinBox { id: secondSpin; Layout.fillWidth: true; from: 0; to: 59; value: 0 }
+                                PlasmaComponents3.Label { text: "s"; color: "#e0c9b8"; font.pixelSize: 11 }
+                            }
+
+                            // Confirm
+                            PlasmaComponents3.Button {
+                                text: "Set"
+                                Layout.alignment: Qt.AlignHCenter
+                                onClicked: {
+                                    var total = hourSpin.value * 3600
+                                        + minuteSpin.value * 60
+                                        + secondSpin.value
+                                    if (total > 0) {
+                                        quickAlarmCard.setTotalSeconds  = total
+                                        quickAlarmCard.remainingSeconds = total
+                                        quickAlarmCard.alarmRunning     = false
+                                        quickAlarmCard.alarmFired       = false
+                                    }
+                                    quickAlarmCard.isEditing = false
                                 }
                             }
                         }
