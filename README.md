@@ -1,4 +1,3 @@
-
 # Ki-Station
 
 Currently under development
@@ -9,6 +8,8 @@ In my mind my vision for it is to contain the most usefull things a user will ne
 So it will have features like an intergrated Bash Console, Media Control, time and weather info, KDE connect and more...
 
 <img width="429" height="658" alt="Showcase" src="https://github.com/user-attachments/assets/9268d249-b5cb-45a7-9186-0089b249988e" />
+<img width="1920" height="1044" alt="showcase 2" src="https://github.com/user-attachments/assets/146b7521-bd5e-4c9e-b1cc-97a9d79519b1" />
+
 
 Along with that i'll try to add as much customization as possible with options like:
   - Color Picking for most UI Components,
