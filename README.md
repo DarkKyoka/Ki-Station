@@ -8,6 +8,8 @@ The Software will be a control station widget, like those linux KDE systems have
 In my mind my vision for it is to contain the most usefull things a user will need on a single panel.
 So it will have features like an intergrated Bash Console, Media Control, time and weather info, KDE connect and more...
 
+<img width="429" height="658" alt="Showcase" src="https://github.com/user-attachments/assets/612c64b4-f379-4c53-ad94-f1b6a19889b6" />
+
 
 Along with that i'll try to add as much customization as possible with options like:
   - Color Picking for most UI Components,
