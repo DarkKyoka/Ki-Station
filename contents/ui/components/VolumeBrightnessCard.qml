@@ -9,9 +9,10 @@ Rectangle {
 
     Layout.fillWidth: true
     height: 130
-    color: "#2E0015"
+    color: theme.surface
 
     property int brightnessMaxValue: 10000
+    property var theme
 
     P5Support.DataSource {
         id: sliderSource
@@ -67,7 +68,7 @@ Rectangle {
             width: styledSlider.availableWidth
             height: 12
             radius: 30
-            color: "#140009"
+            color: theme.volumeBrightnessSliderTrackColor
 
             Rectangle {
                 width: styledSlider.visualPosition * (styledSlider.availableWidth - 12) + 6
@@ -75,7 +76,7 @@ Rectangle {
                 radius: 12
                 topRightRadius:    styledSlider.value === 100 ? 30 : 12
                 bottomRightRadius: styledSlider.value === 100 ? 30 : 12
-                color: "#E6096C"
+                color: theme.accent
             }
         }
 
@@ -89,8 +90,8 @@ Rectangle {
                 width: parent.width
                 height: parent.height
                 radius: parent.width * 2
-                color: "#a5004c"
-                border.color: "#ffffff"
+                color: theme.volumeBrightnessHandleColor
+                border.color: theme.volumeBrightnessHandleBorderColor
                 border.width: 1
             }
         }
@@ -108,16 +109,16 @@ Rectangle {
             width: parent.width
             Row {
                 spacing: 5
-                Image {
+                ThemedIcon {
                     source: "../icons/volume-2.svg"
                     width: 16
                     height: 16
                     y: 2
-                    sourceSize: Qt.size(width, height)
+                    color: theme.volumeIconColor
                 }
                 Text {
                     text: "Volume"
-                    color: "white"
+                    color: theme.text
                     font.pointSize: 10
                 }
             }
@@ -140,16 +141,16 @@ Rectangle {
             // Brightness icon
             Row {
                 spacing: 5
-                Image {
+                ThemedIcon {
                     source: "../icons/Weathers/sun.svg"
                     width: 16
                     height: 16
                     y: 2
-                    sourceSize: Qt.size(width, height)
+                    color: theme.brightnessIconColor
                 }
                 Text {
                     text: "Brightness"
-                    color: "white"
+                    color: theme.text
                     font.pointSize: 10
                 }
             }

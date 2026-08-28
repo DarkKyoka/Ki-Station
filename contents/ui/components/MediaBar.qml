@@ -12,12 +12,13 @@ Rectangle {
 
     Layout.fillWidth: true
     height: 124
-    color: "#2E0015"
+    color: theme.surface
 
     // Data in
     // The whole mediaState object is passed down from PlasmoidItem level.
     // All properties on it are live bindings — they update automatically.
     property var state: null
+    property var theme
 
     // Convenience aliases so the UI below reads cleanly
     readonly property string title:          state ? state.title          : "Nothing Playing"
@@ -105,7 +106,7 @@ Rectangle {
                 Rectangle {
                     anchors.fill: parent
                     radius: 8
-                    color: "#1A0009"
+                    color: theme.surfaceAlt
                     visible: root.artUrl === "" || albumArtImg.status !== Image.Ready
                     z: -1
                 }
@@ -118,21 +119,21 @@ Rectangle {
 
                 Text {
                     text: root.title
-                    color: "white"
+                    color: theme.text
                     font.pointSize: 10
                     width: 160
                     elide: Text.ElideRight
                 }
                 Text {
                     text: root.artist
-                    color: "#B0B0B0"
+                    color: theme.subtext
                     font.pointSize: 8
                     width: 160
                     elide: Text.ElideRight
                 }
                 Text {
                     text: root.player
-                    color: "#9BFA78"
+                    color: theme.positive
                     font.pointSize: 8
                 }
             }
@@ -150,7 +151,7 @@ Rectangle {
                 // Current position
                 Text {
                     text: formatTime(progressBar.pressed ? progressBar.value : root.position)
-                    color: "white"
+                    color: theme.text
                     font.pointSize: 8
                     width: 78
                     horizontalAlignment: Text.AlignLeft
@@ -161,9 +162,10 @@ Rectangle {
                     spacing: 15
                     topPadding: 2
 
-                    Image {
+                    ThemedIcon {
                         source: "../icons/MediaPlayer/skip-back.svg"
                         width: 14; height: 14
+                        color: theme.iconMedia
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
@@ -173,11 +175,12 @@ Rectangle {
                         }
                     }
 
-                    Image {
+                    ThemedIcon {
                         source: root.isPlaying
                             ? "../icons/MediaPlayer/pause.svg"
                             : "../icons/MediaPlayer/play.svg"
                         width: 14; height: 14
+                        color: theme.iconMedia
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
@@ -187,9 +190,10 @@ Rectangle {
                         }
                     }
 
-                    Image {
+                    ThemedIcon {
                         source: "../icons/MediaPlayer/skip-forward.svg"
                         width: 14; height: 14
+                        color: theme.iconMedia
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
@@ -203,7 +207,7 @@ Rectangle {
                 // Duration
                 Text {
                     text: root.title === "Nothing Playing" ? "--:--" : formatTime(root.duration)
-                    color: "white"
+                    color: theme.text
                     font.pointSize: 8
                     width: 78
                     horizontalAlignment: Text.AlignRight
@@ -247,13 +251,13 @@ Rectangle {
                     width: progressBar.availableWidth
                     height: 12
                     radius: 8
-                    color: "#140009"
+                    color: theme.mediaProgressTrackColor
 
                     Rectangle {
                         width: progressBar.visualPosition * parent.width
                         height: parent.height
                         radius: 8
-                        color: "#3DDC6A"
+                        color: theme.positive
                     }
                 }
 

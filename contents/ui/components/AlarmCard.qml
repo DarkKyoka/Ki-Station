@@ -10,13 +10,14 @@ Rectangle {
 
     Layout.fillWidth: true
     implicitHeight: 124
-    color: "#2E0015"
+    color: theme.surface
 
     // State
     property string alarmLabel:       "Quick Alarm"
     property bool   alarmRunning:     false
     property bool   alarmFired:       false
     property bool   isEditing:        false   // switches between the two inner views
+    property var    theme
 
     // Time the user last confirmed — never touched by the countdown
     property int    setTotalSeconds:  300
@@ -85,7 +86,7 @@ Rectangle {
             PlasmaComponents3.Label {
                 text: root.alarmLabel
                 font.pixelSize: Kirigami.Units.gridUnit * 0.7
-                color: "#e0c9b8"
+                color: theme.subtext
                 Layout.fillWidth: true
             }
 
@@ -100,7 +101,7 @@ Rectangle {
             text: root.alarmTime
             font.pixelSize: Kirigami.Units.gridUnit * 1.6
             font.bold: true
-            color: root.alarmFired ? "#FF6E6E" : "#e0a458"
+            color: root.alarmFired ? theme.negative : theme.terminalText
             opacity: blinkTimer.blinkOn ? 0.2 : 1.0
             Layout.alignment: Qt.AlignHCenter
         }
@@ -113,7 +114,7 @@ Rectangle {
             PlasmaComponents3.ToolButton {
                 Layout.fillWidth: true
                 icon.name: "dialog-close"
-                icon.color: "#d9534f"
+                icon.color: theme.negative
                 onClicked: {
                     root.alarmRunning     = false
                     root.alarmFired       = false
@@ -164,7 +165,7 @@ Rectangle {
             PlasmaComponents3.Label {
                 text: "Set countdown"
                 font.pixelSize: Kirigami.Units.gridUnit * 0.7
-                color: "#e0c9b8"
+                color: theme.subtext
                 Layout.fillWidth: true
             }
 
@@ -181,15 +182,15 @@ Rectangle {
 
             // hours
             SpinBox { id: hourSpin;   Layout.fillWidth: true; from: 0; to: 23; value: 0 }
-            PlasmaComponents3.Label { text: "h"; color: "#e0c9b8"; font.pixelSize: 11 }
+            PlasmaComponents3.Label { text: "h"; color: theme.subtext; font.pixelSize: 11 }
 
             //minutes
             SpinBox { id: minuteSpin; Layout.fillWidth: true; from: 0; to: 59; value: 5 }
-            PlasmaComponents3.Label { text: "m"; color: "#e0c9b8"; font.pixelSize: 11 }
+            PlasmaComponents3.Label { text: "m"; color: theme.subtext; font.pixelSize: 11 }
 
             //seconds
             SpinBox { id: secondSpin; Layout.fillWidth: true; from: 0; to: 59; value: 0 }
-            PlasmaComponents3.Label { text: "s"; color: "#e0c9b8"; font.pixelSize: 11 }
+            PlasmaComponents3.Label { text: "s"; color: theme.subtext; font.pixelSize: 11 }
         }
 
         // Confirm button

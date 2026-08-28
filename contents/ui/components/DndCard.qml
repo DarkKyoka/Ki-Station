@@ -7,22 +7,23 @@ import org.kde.notificationmanager as NotificationManager
 Rectangle {
     id: root
 
-    color: "#2E0015"
+    color: theme.surface
     height: 130
     width: 97
     Layout.preferredWidth: 97
 
     property bool dndActive: false
+    property var theme
 
 
     NotificationManager.Settings{
         id: notifSettings
     }
 
-    // Refresh state every 0.5 seconds
+    // DND changes are infrequent, so a one-second check is sufficient.
     Timer{
-        interval: 500
-        running: true
+        interval: 1000
+        running: root.visible
         repeat: true
         triggeredOnStart: true
         onTriggered: root.dndActive = notifSettings.notificationsInhibitedUntil > new Date()
@@ -35,16 +36,16 @@ Rectangle {
         anchors.fill: parent
         spacing: 6
 
-        Image {
+        ThemedIcon {
             source: root.dndActive ? "../icons/DnD/bell-off.svg" : "../icons/DnD/bell.svg"
             width: 60; height: 60
-            sourceSize: Qt.size(width, height)
+            color: root.dndActive ? theme.doNotDisturbOnIconColor : theme.doNotDisturbOffIconColor
             Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
         }
 
         Text {
             text: root.dndActive ? "DnD: On" : "DnD: Off"
-            color: "white"
+            color: theme.text
             font.pointSize: 8
             horizontalAlignment: Text.AlignHCenter
             Layout.alignment: Qt.AlignHCenter

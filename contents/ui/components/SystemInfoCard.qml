@@ -13,6 +13,10 @@ Rectangle {
     property real downloadSpeed: 0
     property var  _cpuPrev:      null
     property var  _netPrev:      null
+    property var  theme
+
+    // One read avoids three process launches for each statistics refresh.
+    readonly property string statsQuery: "cat /proc/stat /proc/meminfo /proc/net/dev"
 
     function formatSpeed(bytesPerSec) {
         if (bytesPerSec < 1024)       return bytesPerSec.toFixed(0) + " B/s"
@@ -23,7 +27,7 @@ Rectangle {
 
     Layout.fillWidth: true
     implicitHeight: 124
-    color: "#2E0015"
+    color: theme.surface
 
     P5Support.DataSource {
         id: sysStatsSource
@@ -31,51 +35,72 @@ Rectangle {
         connectedSources: []
 
         onNewData: (sourceName, data) => {
-            var out = data["stdout"].trim()
+            var out = (data["stdout"] || "").trim()
 
-            if (sourceName === "cat /proc/stat") {
-                var tok     = out.split("\n")[0].split(/\s+/)
-                var user    = parseInt(tok[1]), nice = parseInt(tok[2])
-                var sys     = parseInt(tok[3]), idle = parseInt(tok[4])
-                var iowt    = parseInt(tok[5]), irq  = parseInt(tok[6])
-                var sirq    = parseInt(tok[7])
-                var total   = user + nice + sys + idle + iowt + irq + sirq
-                var idleSum = idle + iowt
+            if (sourceName === root.statsQuery) {
+                var lines = out.split("\n")
+                var cpuLine = ""
+                var memTotal = 0
+                var memAvail = 0
+                var totalRx = 0
+                var totalTx = 0
 
-                if (root._cpuPrev !== null) {
-                    var dTotal = total   - root._cpuPrev.total
-                    var dIdle  = idleSum - root._cpuPrev.idle
-                    if (dTotal > 0)
-                        root.cpuUsage = (dTotal - dIdle) / dTotal
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].trim()
 
+                    if (line.indexOf("cpu ") === 0) {
+                        cpuLine = line
+                        continue
+                    }
+
+                    if (line.indexOf("MemTotal:") === 0) {
+                        memTotal = parseInt(line.split(/\s+/)[1]) || 0
+                        continue
+                    }
+
+                    if (line.indexOf("MemAvailable:") === 0) {
+                        memAvail = parseInt(line.split(/\s+/)[1]) || 0
+                        continue
+                    }
+
+                    var colon = line.indexOf(":")
+                    if (colon !== -1) {
+                        var device = line.substring(0, colon).trim()
+                        var fields = line.substring(colon + 1).trim().split(/\s+/)
+                        if (device !== "lo" && fields.length >= 9) {
+                            totalRx += parseInt(fields[0]) || 0
+                            totalTx += parseInt(fields[8]) || 0
+                        }
+                    }
                 }
-                root._cpuPrev = { total: total, idle: idleSum }
-            }
 
-            if (sourceName === "cat /proc/meminfo") {
-                var memTotal = 0, memAvail = 0
-                out.split("\n").forEach(function(line) {
-                    if (line.startsWith("MemTotal:"))
-                        memTotal = parseInt(line.split(/\s+/)[1])
-                    if (line.startsWith("MemAvailable:"))
-                        memAvail = parseInt(line.split(/\s+/)[1])
-                })
+                if (cpuLine !== "") {
+                    var tok     = cpuLine.split(/\s+/)
+                    var user    = parseInt(tok[1]) || 0
+                    var nice    = parseInt(tok[2]) || 0
+                    var sys     = parseInt(tok[3]) || 0
+                    var idle    = parseInt(tok[4]) || 0
+                    var iowt    = parseInt(tok[5]) || 0
+                    var irq     = parseInt(tok[6]) || 0
+                    var sirq    = parseInt(tok[7]) || 0
+                    var total   = user + nice + sys + idle + iowt + irq + sirq
+                    var idleSum = idle + iowt
+
+                    if (root._cpuPrev !== null) {
+                        var dTotal = total   - root._cpuPrev.total
+                        var dIdle  = idleSum - root._cpuPrev.idle
+                        if (dTotal > 0)
+                            root.cpuUsage = (dTotal - dIdle) / dTotal
+                    }
+                    root._cpuPrev = { total: total, idle: idleSum }
+                }
+
                 if (memTotal > 0) {
                     root.ramUsedGib  = (memTotal - memAvail) / 1048576
                     root.ramTotalGib = Math.round(memTotal / 1048576)
                 }
-            }
 
-            if (sourceName === "cat /proc/net/dev") {
                 var now = Date.now()
-                var totalRx = 0, totalTx = 0
-                var lines = out.split("\n")
-                for (var i = 2; i < lines.length; i++) {
-                    var parts = lines[i].trim().split(/\s+/)
-                    if (parts.length < 10 || parts[0] === "lo:") continue
-                    totalRx += parseInt(parts[1])
-                    totalTx += parseInt(parts[9])
-                }
                 if (root._netPrev !== null) {
                     var dt = (now - root._netPrev.time) / 1000
                     if (dt > 0) {
@@ -90,15 +115,13 @@ Rectangle {
         }
 
         function refresh() {
-            connectSource("cat /proc/stat")
-            connectSource("cat /proc/meminfo")
-            connectSource("cat /proc/net/dev")
+            connectSource(root.statsQuery)
         }
     }
 
     Timer {
         interval: 2000
-        running: true
+        running: root.visible
         repeat: true
         triggeredOnStart: true
         onTriggered: sysStatsSource.refresh()
@@ -113,18 +136,18 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 5
-            Image { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "../icons/SystemInfo/cpu.svg" }
+            ThemedIcon { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "../icons/SystemInfo/cpu.svg"; color: theme.cpuIconColor }
             Text { text: "CPU usage:";
-                color: "white";
+                color: theme.text;
                 font.pixelSize: 13
             }
             Item { Layout.fillWidth: true }
             Text {
                 text: Math.round(root.cpuUsage * 100) + "%";
                 color:  if(Math.round(root.cpuUsage * 100) >= 80){
-                    "#FF6E6E"
+                    theme.negative
                 }else{
-                    "white"
+                    theme.text
                 }
                 font.pixelSize: 13
             }
@@ -134,10 +157,10 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 5
-            Image { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "../icons/SystemInfo/memory-stick.svg" }
-            Text { text: "Ram usage:"; color: "white"; font.pixelSize: 13 }
+            ThemedIcon { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "../icons/SystemInfo/memory-stick.svg"; color: theme.memoryIconColor }
+            Text { text: "Ram usage:"; color: theme.text; font.pixelSize: 13 }
             Item { Layout.fillWidth: true }
-            Text { text: root.ramUsedGib.toFixed(1) + " / " + root.ramTotalGib + " GiB"; color: "white"; font.pixelSize: 13 }
+            Text { text: root.ramUsedGib.toFixed(1) + " / " + root.ramTotalGib + " GiB"; color: theme.text; font.pixelSize: 13 }
         }
 
         // Network
@@ -147,8 +170,8 @@ Rectangle {
 
             RowLayout {
                 spacing: 5
-                Image { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "../icons/SystemInfo/ethernet-port.svg" }
-                Text { text: "Network Stats"; color: "white"; font.pixelSize: 13 }
+                ThemedIcon { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "../icons/SystemInfo/ethernet-port.svg"; color: theme.ethernetIconColor }
+                Text { text: "Network Stats"; color: theme.text; font.pixelSize: 13 }
             }
 
             RowLayout {
@@ -156,13 +179,13 @@ Rectangle {
                 spacing: 16
                 RowLayout {
                     spacing: 4
-                    Text { text: "↑"; color: "#5ac8fa"; font.pixelSize: 13 }
-                    Text { text: root.formatSpeed(root.uploadSpeed); color: "#5ac8fa"; font.pixelSize: 13 }
+                    Text { text: "↑"; color: theme.info; font.pixelSize: 13 }
+                    Text { text: root.formatSpeed(root.uploadSpeed); color: theme.info; font.pixelSize: 13 }
                 }
                 RowLayout {
                     spacing: 4
-                    Text { text: "↓"; color: "#5ac8fa"; font.pixelSize: 13 }
-                    Text { text: root.formatSpeed(root.downloadSpeed); color: "#5ac8fa"; font.pixelSize: 13 }
+                    Text { text: "↓"; color: theme.info; font.pixelSize: 13 }
+                    Text { text: root.formatSpeed(root.downloadSpeed); color: theme.info; font.pixelSize: 13 }
                 }
             }
         }

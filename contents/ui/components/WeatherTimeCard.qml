@@ -9,10 +9,11 @@ Rectangle {
     Layout.preferredWidth: 174
     height: 124
     radius: 0
-    color: "#2E0015"
+    color: theme.surface
 
     property string temperature: "-"
     property string condition: "-"
+    property var theme
 
     //weather code -> readable text
     function codeToText(code) {
@@ -55,7 +56,7 @@ Rectangle {
                 var code = json.current.weather_code
 
                 root.temperature = Math.round(temp) + "°"
-                root.condition = executable.codeToText(code)
+                root.condition = root.codeToText(code)
             }
             disconnectSource(sourceName)
         }
@@ -70,7 +71,7 @@ Rectangle {
     //refresh timer
     Timer {
         interval: 300000 // refresh every 5 minutes the weather data
-        running: true
+        running: root.visible
         repeat: true
         triggeredOnStart: true
         // it grabs the weather data from Open-Meteo
@@ -92,7 +93,7 @@ Rectangle {
                 width: 125
                 text: "Athens"
                 font.pointSize: 10
-                color: "white"
+                color: theme.text
             }
 
             //date text
@@ -104,7 +105,7 @@ Rectangle {
                 }
 
                 text: date.currentDate
-                color: "white"
+                color: theme.text
                 font.pointSize: 10
             }
         }
@@ -119,7 +120,7 @@ Rectangle {
                 property string timePeriod;
                 Timer{
                     interval: 1000
-                    running: true
+                    running: root.visible
                     repeat: true
                     triggeredOnStart: true
                     onTriggered: {
@@ -135,13 +136,13 @@ Rectangle {
             spacing: 4
             Text {
                 text: timeCard.currentTime
-                color: "white"
+                color: theme.text
                 font.pointSize: 28
                 font.weight: 500
             }
             Text {
                 text: timeCard.timePeriod
-                color: "#FCAD35"
+                color: theme.neutral
                 font.pointSize: 16
                 topPadding: 17
             }
@@ -157,13 +158,14 @@ Rectangle {
                 spacing: 4
                 Text {
                     text: root.temperature
-                    color: "white"
+                    color: theme.text
                     font.pointSize: 12
                 }
 
-                Image {
+                ThemedIcon {
                     source: "../icons/Weathers/sun.svg"
                     width: 16; height: 16
+                    color: theme.weatherIconColor
                     visible: true
                     Layout.topMargin: 4
                 }
@@ -173,7 +175,7 @@ Rectangle {
 
             Text {
                 text: root.condition
-                color: "white"
+                color: theme.text
                 fontSizeMode: Text.Fit
                 font.pointSize: 10
                 minimumPointSize: 6

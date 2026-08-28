@@ -10,13 +10,14 @@ Rectangle {
 
     width: widgetMainWindow.cardWidth
     height: 150
-    color: "#2E0015"
+    color: theme.surface
     radius: 0
 
     property string promptUser: "User"
     property string promptHost: "ThisPC"
     property string currentPath: "~"
     property var outputLines: []
+    property var theme
 
     // Runs shell commands and appends their output to outputLines
     P5Support.DataSource {
@@ -75,7 +76,7 @@ Rectangle {
             PlasmaComponents3.Label {
                 text: "Bash"
                 font.pixelSize: Kirigami.Units.gridUnit * 0.7
-                color: "#e0c9b8"
+                color: theme.subtext
                 Layout.fillWidth: true
             }
 
@@ -94,7 +95,7 @@ Rectangle {
 
             Text {
                 text: root.promptUser + "@" + root.promptHost + ":" + root.currentPath + "$"
-                color: "#6AED0C"
+                color: theme.terminalPrompt
                 font.family: "monospace"
                 font.pixelSize: 10
             }
@@ -105,7 +106,7 @@ Rectangle {
                 placeholderText: ""
                 font.family: "monospace"
                 font.pixelSize: 10
-                color: "#e0a458"
+                color: theme.terminalText
 
                 // Blend into the terminal — no border, no background
                 background: Item {}
@@ -143,7 +144,7 @@ Rectangle {
             delegate: Text {
                 width: outputView.width
                 text: modelData
-                color: "#e0a458"
+                color: theme.terminalText
                 font.family: "monospace"
                 font.pixelSize: 8
                 wrapMode: Text.Wrap

@@ -6,12 +6,13 @@ import org.kde.plasma.plasma5support as P5Support
 Rectangle {
     id: root
 
-    color: "#2E0015"
+    color: theme.surface
     height: 130
     //width: 97
     Layout.preferredWidth: 97
 
     property bool isMuted: false
+    property var theme
 
 
     P5Support.DataSource{
@@ -28,7 +29,7 @@ Rectangle {
     //checks for mic status once per 2 seconds
     Timer{
         interval: 2000
-        running: true
+        running: root.visible
         repeat: true
         triggeredOnStart: true
         onTriggered: micSource.connectSource("pactl get-source-mute @DEFAULT_SOURCE@")
@@ -48,18 +49,18 @@ Rectangle {
         spacing: 6
 
         //icon handle
-        Image {
-            source: root.isMuted ? "../icons/Mic/mic-on.svg" : "../icons/Mic/mic-off.svg"
+        ThemedIcon {
+            source: root.isMuted ?  "../icons/Mic/mic-off.svg" : "../icons/Mic/mic-on.svg"
             width: 60
             height: 60
-            sourceSize: Qt.size(width, height)
+            color: root.isMuted ? theme.microphoneMutedIconColor : theme.microphoneEnabledIconColor
             Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
         }
 
         //state
         Text {
-            text: root.isMuted ? "Mic: Enabled" : "Mic: Disabled"
-            color: "white"
+            text: root.isMuted ? "Mic: Disabled" : "Mic: Enabled"
+            color: theme.text
             font.pointSize: 8
             horizontalAlignment: Text.AlignHCenter
             Layout.alignment: Qt.AlignHCenter

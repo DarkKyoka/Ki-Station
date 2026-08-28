@@ -15,10 +15,20 @@ import org.kde.notificationmanager as NotificationManager
 
 import "components"
 
+
+
 PlasmoidItem {
+
     id: widgetMainWindow
 
+    Theme{
+        id: appTheme
+    }
+
+
     property int cardWidth: 430
+    // One query avoids four process launches for every media refresh.
+    readonly property string mediaQuery: "playerctl metadata --format '{{playerName}}|{{status}}|{{title}}|{{artist}}|{{album}}|{{mpris:artUrl}}|{{xesam:url}}|{{mpris:length}}|{{position}}'"
 
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
 
@@ -66,60 +76,64 @@ PlasmoidItem {
         connectedSources: []
 
         onNewData: (sourceName, data) => {
-            var out = data["stdout"].trim()
+            var out = (data["stdout"] || "").trim()
 
-            if (sourceName.includes("metadata --format")) {
+            if (sourceName === widgetMainWindow.mediaQuery) {
                 var parts = out.split("|")
-                if (parts[0] === "") { disconnectSource(sourceName); return }
 
-                mediaState.activePlayer = parts[0] || ""
-                mediaState.title        = parts[1] || "Nothing Playing"
-                mediaState.artist       = parts[2] || ""
-                mediaState.player       = parts[0] || ""
-                mediaState.videoUrl     = parts[5] || ""
+                if (parts.length < 9 || parts[0] === "") {
+                    mediaState.activePlayer = ""
+                    mediaState.player       = ""
+                    mediaState.title        = "Nothing Playing"
+                    mediaState.artist       = ""
+                    mediaState.album        = ""
+                    mediaState.videoUrl     = ""
+                    mediaState.artUrl       = ""
+                    mediaState.isPlaying    = false
+                    mediaState.position     = 0
+                    mediaState.duration     = 0
+                } else {
+                    mediaState.activePlayer = parts[0]
+                    mediaState.isPlaying    = parts[1] === "Playing"
+                    mediaState.title        = parts[2] || "Nothing Playing"
+                    mediaState.artist       = parts[3] || ""
+                    mediaState.album        = parts[4] || ""
+                    mediaState.player       = parts[0]
+                    mediaState.videoUrl     = parts[6] || ""
 
-                var art     = parts[4] || ""
-                var pageUrl = parts[5] || ""
+                    var art      = parts[5] || ""
+                    var pageUrl  = parts[6] || ""
+                    var length   = parseFloat(parts[7])
+                    var position = parseFloat(parts[8])
 
-                // Firefox sets artUrl to the watch page — not an image, ignore it
-                if (art.includes("youtube.com/watch") || art.includes("youtu.be/"))
-                    art = ""
+                    // Firefox sets artUrl to the watch page, so derive a thumbnail instead.
+                    if (art.includes("youtube.com/watch") || art.includes("youtu.be/"))
+                        art = ""
+                    if (art === "" && pageUrl !== "")
+                        art = mediaState.getThumbnail(pageUrl)
 
-                // Derive thumbnail from the page URL instead
-                if (art === "" && pageUrl !== "")
-                    art = mediaState.getThumbnail(pageUrl)
-
-                if (art !== "") mediaState.artUrl = art
-            }
-            if (sourceName.includes("playerctl status")) {
-                mediaState.isPlaying = out === "Playing"
-            }
-            if (sourceName.includes("playerctl metadata mpris:length")) {
-                var len = parseFloat(out)
-                if (!isNaN(len) && len > 0) mediaState.duration = len
-            }
-            if (sourceName.includes("playerctl position")) {
-                var sec = parseFloat(out)
-                if (!isNaN(sec) && sec >= 0) mediaState.position = sec * 1000000
+                    mediaState.artUrl = art
+                    if (!isNaN(length) && length > 0)
+                        mediaState.duration = length
+                    if (!isNaN(position) && position >= 0)
+                        mediaState.position = position
+                }
             }
 
             disconnectSource(sourceName)
         }
 
         function refresh() {
-            connectSource("playerctl metadata --format '{{playerName}}|{{title}}|{{artist}}|{{album}}|{{mpris:artUrl}}|{{xesam:url}}'")
-            connectSource("playerctl status")
-            connectSource("playerctl metadata mpris:length")
-            connectSource("playerctl position")
+            connectSource(widgetMainWindow.mediaQuery)
         }
 
         // Fetch immediately so data is ready before the popup is ever opened
         Component.onCompleted: refresh()
     }
 
-    // Main poll — keeps state fresh every second in the background
+    // Active playback stays responsive; paused or absent players need less polling.
     Timer {
-        interval: 1000
+        interval: mediaState.isPlaying ? 1000 : 5000
         running: true
         repeat: true
         onTriggered: mediaSource.refresh()
@@ -136,10 +150,10 @@ PlasmoidItem {
         }
     }
 
-    // Thumbnail cache-buster — forces a re-fetch of the image every 30 seconds
+    // Thumbnail cache-buster, forces a re-fetch of the image every 30 seconds
     Timer {
         interval: 30000
-        running: true
+        running: mediaState.artUrl !== ""
         repeat: true
         onTriggered: mediaState.artRefreshTick++
     }
@@ -164,7 +178,7 @@ PlasmoidItem {
             width: widgetMainWindow.cardWidth
             height: mainColumn.height + 4
             //anchors.fill: parent
-            color: "#470020"
+            color: appTheme.widgetBackgroundColor
 
 
             Column {
@@ -176,7 +190,7 @@ PlasmoidItem {
 
 
                 //      TOP PANEL
-                TopPanel{}
+                TopPanel { theme: appTheme }
 
                 // Second Row of Panels (Weather-time & Media Player)
                 RowLayout {
@@ -185,10 +199,11 @@ PlasmoidItem {
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     //              Weather & Time
-                    WeatherTimeCard {}
+                    WeatherTimeCard { theme: appTheme }
 
                     //              Media Player
                     MediaBar{
+                        theme: appTheme
                         state: mediaState
                         onSeekRequested: seekRefresh.restart()
                     }
@@ -201,13 +216,13 @@ PlasmoidItem {
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     //  DnD
-                    DndCard {}
+                    DndCard { theme: appTheme }
 
                     //  Mic Mute
-                    MicCard {}
+                    MicCard { theme: appTheme }
 
                     //Volume & Brightness
-                    VolumeBrightnessCard{}
+                    VolumeBrightnessCard { theme: appTheme }
                 }
 
                 //System Stats & Alarm
@@ -218,15 +233,16 @@ PlasmoidItem {
 
                     // System Information Tab
                     SystemInfoCard{
+                        theme: appTheme
                         Layout.fillWidth: true
                     }
 
                     // Alarm
-                    AlarmCard {}
+                    AlarmCard { theme: appTheme }
                 }
 
                 // Bash terminal panel
-                TerminalPanel{}
+                TerminalPanel { theme: appTheme }
             }
         }
     }

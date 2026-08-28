@@ -1,20 +1,23 @@
 import QtQuick
-import QtQuick.Layouts
-import QtQuick.Controls
 import Qt5Compat.GraphicalEffects
 import org.kde.plasma.plasma5support as P5Support
+
+import "PopUpCards"
 
     // Top header panel: avatar, welcome text, battery, and action buttons.
     // Absorbs all its own data sources: fully self-contained.
     Rectangle {
         id: root
+        property var theme
+        property string userName: ""
 
-        width: parent.width
+
+        width: parent.width - 2
         height: 118
         radius: 10
         bottomLeftRadius: 0
         bottomRightRadius: 0
-        color: "#2E0015"
+        color: theme.surface
 
         // Command source: settings, power
         P5Support.DataSource {
@@ -24,6 +27,113 @@ import org.kde.plasma.plasma5support as P5Support
             onNewData: (sourceName, data) => disconnectSource(sourceName)
         }
 
+        // ── WiFi data (lives here because PopUpCards/ can't access P5Support) ────────
+
+        P5Support.DataSource {
+            id: wifiSource
+            engine: "executable"
+            connectedSources: []
+
+            onNewData: function(sourceName, data) {
+                var out = (data["stdout"] || "").trim()
+
+                if (sourceName.indexOf("nmcli -t -f active,ssid,signal dev wifi") === 0)
+                    wifiNetworks = parseWifiNetworks(out)
+                else if (sourceName.indexOf("nmcli radio wifi") === 0)
+                    wifiEnabled = (out === "enabled")
+                else if (sourceName.indexOf("nmcli -t -f device,type,state,connection dev") === 0)
+                    ethernetConnections = parseEthernetDevices(out)
+
+                disconnectSource(sourceName)
+            }
+        }
+
+        property bool wifiEnabled: true
+        property var  wifiNetworks: []
+        property var ethernetConnections: []
+
+
+        function wifiRefresh() {
+            wifiSource.connectSource("nmcli radio wifi")
+            wifiSource.connectSource("nmcli -t -f active,ssid,signal dev wifi list")
+            wifiSource.connectSource("nmcli -t -f device,type,state,connection dev")
+        }
+
+        function toggleWifi(on) {
+            wifiSource.connectSource("nmcli radio wifi " + (on ? "on" : "off"))
+            wifiRefreshTimer.restart()
+        }
+
+        function connectToWifi(ssid) {
+            wifiSource.connectSource("nmcli con up id '" + ssid + "'")
+            wifiRefreshTimer.restart()
+        }
+
+        function parseWifiNetworks(raw) {
+            var lines  = raw.split("\n")
+            var result = []
+
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim()
+                if (line === "") continue
+
+                var parts = line.split(":")
+                if (parts.length < 3) continue
+
+                var active = parts[0] === "yes"
+                var ssid   = parts[1]
+                var signal = parseInt(parts[2]) || 0
+
+                if (ssid === "") continue
+
+                result.push({ ssid: ssid, signal: signal, active: active })
+            }
+
+            result.sort(function(a, b) {
+                if (a.active !== b.active) return a.active ? -1 : 1
+                return b.signal - a.signal
+            })
+
+            return result
+        }
+
+        function parseEthernetDevices(raw) {
+            var lines  = raw.split("\n")
+            var result = []
+
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim()
+                if (line === "") continue
+
+                // nmcli -t outputs:  enp3s0:ethernet:connected:Wired connection 1
+                var parts = line.split(":")
+                if (parts.length < 4) continue
+
+                var device     = parts[0]
+                var type       = parts[1]
+                var state      = parts[2]
+                var connection = parts[3]
+
+                // Only ethernet, skip loopback
+                if (type !== "ethernet") continue
+
+                result.push({
+                    device:     device,
+                    connection: connection !== "" ? connection : device,
+                    connected:  state === "connected"
+                })
+            }
+
+            return result
+        }
+
+        // Delayed re-poll after toggle/connect actions
+        Timer {
+            id:          wifiRefreshTimer
+            interval:    1200
+            onTriggered: wifiRefresh()
+        }
+
         // Avatar
         Item {
             id: pfpRect
@@ -31,7 +141,7 @@ import org.kde.plasma.plasma5support as P5Support
             width: 90; height: 90
             property string avatarSource: ""
 
-            // Two-step lookup: whoami, check AccountsService, fallback to ~/.face just in case it fails
+            // Fetch identity once, then reuse it for the greeting and avatar lookup.
             P5Support.DataSource {
                 id: accountsSource
                 engine: "executable"
@@ -41,9 +151,10 @@ import org.kde.plasma.plasma5support as P5Support
 
                 onNewData: (sourceName, data) => {
                     if (data["exit code"] !== 0) { disconnectSource(sourceName); return }
-                    var output = data["stdout"].trim()
+                    var output = (data["stdout"] || "").trim()
 
                     if (sourceName === "whoami") {
+                        root.userName = output
                         accountsSource.exec(
                             "test -f /var/lib/AccountsService/icons/" + output +
                             " && echo /var/lib/AccountsService/icons/" + output +
@@ -91,22 +202,10 @@ import org.kde.plasma.plasma5support as P5Support
             anchors.verticalCenter: pfpRect.verticalCenter
             spacing: 4
 
-            // Welcome text
-            P5Support.DataSource {
-                id: userSource
-                engine: "executable"
-                connectedSources: ["whoami"]
-                onNewData: (sourceName, data) => {
-                    infoCol.userName = data["stdout"].trim()
-                }
-            }
-
-            property string userName: ""
-
             Text {
-                text: "Hey, " + infoCol.userName + "!"
+                text: "Hey, " + root.userName + "!"
                 font.pointSize: 16
-                color: "white"
+                color: theme.text
             }
 
             // Battery row, only visible if a battery is present
@@ -136,8 +235,13 @@ import org.kde.plasma.plasma5support as P5Support
                     }
                 }
 
-                Text  { text: batteryItem.percentage; color: "white"; font.pointSize: 11 }
-                Image { source: "../icons/battery-full.svg" }
+                Text  { text: batteryItem.percentage; color: theme.text; font.pointSize: 11 }
+                ThemedIcon {
+                    source: "../icons/battery-full.svg"
+                    color: theme.batteryIconColor
+                    width: 16
+                    height: 16
+                }
             }
 
             // Action buttons row
@@ -147,10 +251,10 @@ import org.kde.plasma.plasma5support as P5Support
                 // Settings
                 Item {
                     width: 22; height: 22
-                    Image {
+                    ThemedIcon {
                         anchors.fill: parent
                         source: "../icons/settings.svg"
-                        sourceSize: Qt.size(width, height)
+                        color: theme.iconAction
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -159,32 +263,76 @@ import org.kde.plasma.plasma5support as P5Support
                     }
                 }
 
-                // WiFi, popup deferred to next session
+                // WiFi popup is created only on first use.
                 Item {
-                    width: 22; height: 22
-                    Image {
+                    id:     wifiButton
+                    width:  22
+                    height: 22
+
+                    ThemedIcon {
                         anchors.fill: parent
-                        source: "../icons/Wifi/wifi.svg"
-                        sourceSize: Qt.size(width, height)
+                        source:       "../icons/Wifi/wifi.svg"
+                        color:        theme.wifiIconColor
                     }
+
                     MouseArea {
                         anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: wifiPopup.open()
+                        cursorShape:  Qt.PointingHandCursor
+                        onClicked: {
+                            if (!wifiPopupLoader.active) {
+                                wifiPopupLoader.openAfterLoad = true
+                                wifiPopupLoader.active = true
+                            } else if (wifiPopupLoader.item) {
+                                wifiPopupLoader.item.open()
+                            }
+                        }
                     }
-                    Popup { id: wifiPopup }
+
+                    // The popup is created only after the user requests it.
+                    Loader {
+                        id: wifiPopupLoader
+                        property bool openAfterLoad: false
+                        sourceComponent: Component {
+                            WifiPopup {
+                                x: -230
+                                y: 15
+
+                                wifiEnabled: root.wifiEnabled
+                                networks: root.wifiNetworks
+                                ethernetConnections: root.ethernetConnections
+                                theme: root.theme
+
+                                onRequestRefresh: root.wifiRefresh()
+                                onToggleWifi: function(enable) {
+                                    root.toggleWifi(enable)
+                                }
+                                onConnectToNetwork: function(ssid) {
+                                    root.connectToWifi(ssid)
+                                }
+                                onOpenSettings: Qt.openUrlExternally("plasma-open-settings network")
+                            }
+                        }
+                        onLoaded: {
+                            if (openAfterLoad && item) {
+                                openAfterLoad = false
+                                item.open()
+                            }
+                        }
+                    }
                 }
 
                 // Bluetooth, handler deferred to next session
-                Image {
+                ThemedIcon {
                     source: "../icons/Bluetooth/bluetooth_static.svg"
                     width: 22; height: 22
+                    color: theme.bluetoothIconColor
                 }
 
                 // KDE Connect, handler deferred to next session
-                Image {
+                ThemedIcon {
                     source: "../icons/monitor-smartphone.svg"
                     width: 22; height: 22
+                    color: theme.kdeConnectIconColor
                 }
             }
         }
@@ -196,10 +344,10 @@ import org.kde.plasma.plasma5support as P5Support
             anchors.right: parent.right
             anchors.margins: 8
 
-            Image {
+            ThemedIcon {
                 anchors.fill: parent
                 source: "../icons/power.svg"
-                sourceSize: Qt.size(width, height)
+                color: theme.topPanelPowerIconColor
             }
 
             MouseArea {
