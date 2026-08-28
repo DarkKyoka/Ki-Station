@@ -13,7 +13,14 @@ Rectangle {
 
     property string temperature: "-"
     property string condition: "-"
+    property string locationName: "Locating..."
+    property real latitude: 0
+    property real longitude: 0
+    property bool locationReady: false
     property var theme
+
+    readonly property string locationQuery: "curl -4 -fsSL --max-time 10 -A 'Ki-Station/1.0' 'https://ipinfo.io/json'"
+    property string weatherQuery: ""
 
     //weather code -> readable text
     function codeToText(code) {
@@ -43,6 +50,17 @@ Rectangle {
         return map[code] !== undefined ? map[code] : "undefined"
     }
 
+    function refreshWeather() {
+        if (!root.locationReady)
+            return
+
+        root.weatherQuery = "curl -fsSL --max-time 10 'https://api.open-meteo.com/v1/forecast?latitude=" +
+                            root.latitude.toFixed(4) + "&longitude=" +
+                            root.longitude.toFixed(4) +
+                            "&current=temperature_2m,weather_code'"
+        executable.exec(root.weatherQuery)
+    }
+
     // Data weather source
     P5Support.DataSource{
         id: executable
@@ -50,13 +68,45 @@ Rectangle {
         connectedSources: []
 
         onNewData: (sourceName, data) => {
-            if (data["exit code"] === 0) {
-                var json = JSON.parse(data["stdout"])
-                var temp = json.current.temperature_2m
-                var code = json.current.weather_code
+            var output = (data["stdout"] || "").trim()
 
-                root.temperature = Math.round(temp) + "°"
-                root.condition = root.codeToText(code)
+            if (sourceName === root.locationQuery) {
+                if (!root.locationReady)
+                    root.locationName = "Location unavailable"
+
+                if (data["exit code"] === 0) {
+                    try {
+                        var location = JSON.parse(output)
+                        var coordinates = String(location.loc || "").split(",")
+                        var resolvedLatitude = location.latitude !== undefined
+                                ? Number(location.latitude) : Number(coordinates[0])
+                        var resolvedLongitude = location.longitude !== undefined
+                                ? Number(location.longitude) : Number(coordinates[1])
+
+                        if (resolvedLatitude >= -90 && resolvedLatitude <= 90 &&
+                            resolvedLongitude >= -180 && resolvedLongitude <= 180) {
+                            root.latitude = resolvedLatitude
+                            root.longitude = resolvedLongitude
+                            root.locationName = location.city || location.region ||
+                                                 location.country_name || "Unknown location"
+                            root.locationReady = true
+                            root.refreshWeather()
+                        }
+                    } catch (error) {
+                        // Keep the unavailable state when the geolocation response is invalid.
+                    }
+                }
+            } else if (sourceName === root.weatherQuery && data["exit code"] === 0) {
+                try {
+                    var weather = JSON.parse(output)
+                    var temp = weather.current.temperature_2m
+                    var code = weather.current.weather_code
+
+                    root.temperature = Math.round(temp) + "°"
+                    root.condition = root.codeToText(code)
+                } catch (error) {
+                    // Keep the last valid weather values when the response is invalid.
+                }
             }
             disconnectSource(sourceName)
         }
@@ -65,17 +115,27 @@ Rectangle {
             connectSource(cmd)
         }
 
-
     }
 
-    //refresh timer
+    // Resolve the user's area periodically in case the device changes networks.
     Timer {
-        interval: 300000 // refresh every 5 minutes the weather data
+        id: locationRefreshTimer
+        interval: 3600000
         running: root.visible
         repeat: true
         triggeredOnStart: true
-        // it grabs the weather data from Open-Meteo
-        onTriggered: executable.exec("curl -s 'https://api.open-meteo.com/v1/forecast?latitude=37.9838&longitude=23.7275&current=temperature_2m,weather_code'")
+        // Start with the location lookup; weather starts after coordinates are resolved.
+        onTriggered: executable.exec(root.locationQuery)
+    }
+
+    // Refresh weather every five minutes after the user's location is known.
+    Timer {
+        id: weatherRefreshTimer
+        interval: 300000
+        running: root.visible && root.locationReady
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root.refreshWeather()
     }
 
     // UI
@@ -91,7 +151,8 @@ Rectangle {
             width: parent.width
             Text {
                 width: 125
-                text: "Athens"
+                text: root.locationName
+                elide: Text.ElideRight
                 font.pointSize: 10
                 color: theme.text
             }
