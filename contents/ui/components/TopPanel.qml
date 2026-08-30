@@ -860,37 +860,57 @@ import "PopUpCards"
 
             // Battery row, only visible if a battery is present
             Row {
-                visible: batteryItem.hasBattery
+                id: batteryRow
+                visible: hasBattery
+                height: 18
                 spacing: 4
 
-                Item {
-                    id: batteryItem
-                    property int  percentage: 0
-                    property bool charging:   false
-                    property bool hasBattery: false
+                property int  percentage: 0
+                property bool charging:   false
+                property bool hasBattery: false
 
-                    P5Support.DataSource {
-                        id: pmSource
-                        engine: "powermanagement"
-                        connectedSources: ["Battery"]
+                function iconSource() {
+                    if (charging)
+                        return "../icons/Battery/battery-charging.svg"
+                    if (percentage <= 15)
+                        return "../icons/Battery/battery-empty.svg"
+                    if (percentage <= 40)
+                        return "../icons/Battery/battery-low.svg"
+                    if (percentage <= 75)
+                        return "../icons/Battery/battery-medium.svg"
+                    return "../icons/battery-full.svg"
+                }
 
-                        onDataChanged: {
-                            var battery = data["Battery"]
-                            if (battery && battery["Has Battery"] !== undefined) {
-                                batteryItem.hasBattery = battery["Has Battery"]
-                                batteryItem.percentage = battery["Percent"] ?? 0
-                                batteryItem.charging   = battery["State"] === "Charging"
-                            }
+                P5Support.DataSource {
+                    id: pmSource
+                    engine: "powermanagement"
+                    connectedSources: ["Battery"]
+
+                    onDataChanged: {
+                        var battery = data["Battery"]
+                        if (battery && battery["Has Battery"] !== undefined) {
+                            batteryRow.hasBattery = battery["Has Battery"]
+                            batteryRow.percentage = Math.max(0, Math.min(100,
+                                Math.round(battery["Percent"] ?? 0)))
+                            batteryRow.charging = battery["State"] === "Charging"
                         }
                     }
                 }
 
-                Text  { text: batteryItem.percentage; color: theme.text; font.pointSize: 11 }
+                Text {
+                    width: 40
+                    height: parent.height
+                    text: batteryRow.percentage + "%"
+                    color: theme.text
+                    font.pointSize: 11
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
                 ThemedIcon {
-                    source: "../icons/battery-full.svg"
+                    source: batteryRow.iconSource()
                     color: theme.batteryIconColor
-                    width: 16
-                    height: 16
+                    width: 18
+                    height: 18
                 }
             }
 

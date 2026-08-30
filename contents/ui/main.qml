@@ -60,6 +60,10 @@ PlasmoidItem {
         property real   duration:     0       // microseconds
         property real   progress:     duration > 0 ? position / duration : 0
         property bool   hasPosition:  false
+        // Some MPRIS players briefly report 0 or the old timestamp after seeking.
+        // Keep the requested position locally until their timestamp catches up.
+        property bool   positionOverrideActive: false
+        property double positionOverrideGraceUntil: 0
         property int    artRefreshTick: 0
 
         function getThumbnail(url) {
@@ -167,11 +171,16 @@ PlasmoidItem {
                     mediaState.position     = 0
                     mediaState.duration     = 0
                     mediaState.hasPosition  = false
+                    mediaState.positionOverrideActive = false
+                    mediaState.positionOverrideGraceUntil = 0
                 } else {
                     var nextPlayer = selectedParts[0]
                     var nextTitle = selectedParts[3] || "Nothing Playing"
                     var trackChanged = nextPlayer !== mediaState.activePlayer ||
                                        nextTitle !== mediaState.title
+
+                    if (trackChanged)
+                        mediaState.positionOverrideActive = false
 
                     mediaState.activePlayer = nextPlayer
                     mediaState.isPlaying    = selectedParts[2] === "Playing"
@@ -199,7 +208,14 @@ PlasmoidItem {
                         mediaState.duration = 0
 
                     if (!isNaN(position) && position >= 0) {
-                        mediaState.position = position
+                        var gracePeriodEnded = Date.now() >= mediaState.positionOverrideGraceUntil
+                        var positionCaughtUp = gracePeriodEnded &&
+                            Math.abs(position - mediaState.position) <= 2500000
+
+                        if (!mediaState.positionOverrideActive || positionCaughtUp) {
+                            mediaState.position = position
+                            mediaState.positionOverrideActive = false
+                        }
                         mediaState.hasPosition = true
                     } else {
                         mediaState.hasPosition = false
@@ -228,14 +244,19 @@ PlasmoidItem {
         onTriggered: mediaSource.refresh()
     }
 
-    // Fallback position tick for players that don't expose position via MPRIS
+    // Fallback clock for players with missing or stale MPRIS positions.
     Timer {
         interval: 1000
-        running: mediaState.isPlaying && !mediaState.hasPosition
+        running: mediaState.isPlaying &&
+                 (!mediaState.hasPosition || mediaState.positionOverrideActive)
         repeat: true
         onTriggered: {
-            if (!mediaState.hasPosition)
-                mediaState.position += 1000000
+            if (!mediaState.hasPosition || mediaState.positionOverrideActive) {
+                var nextPosition = mediaState.position + 1000000
+                mediaState.position = mediaState.duration > 0
+                    ? Math.min(nextPosition, mediaState.duration)
+                    : nextPosition
+            }
         }
     }
 
