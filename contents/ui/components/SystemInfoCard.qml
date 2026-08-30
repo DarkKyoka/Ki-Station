@@ -26,8 +26,10 @@ Rectangle {
     }
 
     Layout.fillWidth: true
+    Layout.minimumWidth: 0
     implicitHeight: 124
     color: theme.surface
+    clip: true
 
     P5Support.DataSource {
         id: sysStatsSource
@@ -137,13 +139,19 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 5
             ThemedIcon { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "../icons/SystemInfo/cpu.svg"; color: theme.cpuIconColor }
-            Text { text: "CPU usage:";
-                color: theme.text;
-                font.pixelSize: 13
-            }
-            Item { Layout.fillWidth: true }
             Text {
-                text: Math.round(root.cpuUsage * 100) + "%";
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                text: "CPU usage:"
+                color: theme.text
+                font.pixelSize: 13
+                elide: Text.ElideRight
+            }
+            Text {
+                Layout.preferredWidth: 42
+                Layout.minimumWidth: 36
+                text: Math.round(root.cpuUsage * 100) + "%"
+                horizontalAlignment: Text.AlignRight
                 color:  if(Math.round(root.cpuUsage * 100) >= 80){
                     theme.negative
                 }else{
@@ -158,9 +166,25 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 5
             ThemedIcon { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "../icons/SystemInfo/memory-stick.svg"; color: theme.memoryIconColor }
-            Text { text: "Ram usage:"; color: theme.text; font.pixelSize: 13 }
-            Item { Layout.fillWidth: true }
-            Text { text: root.ramUsedGib.toFixed(1) + " / " + root.ramTotalGib + " GiB"; color: theme.text; font.pixelSize: 13 }
+            Text {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                text: "RAM usage:"
+                color: theme.text
+                font.pixelSize: 13
+                elide: Text.ElideRight
+            }
+            Text {
+                Layout.preferredWidth: Math.min(implicitWidth, 105)
+                Layout.minimumWidth: 68
+                Layout.maximumWidth: 105
+                text: root.ramUsedGib.toFixed(1) + " / " + root.ramTotalGib + " GiB"
+                color: theme.text
+                font.pixelSize: 13
+                minimumPixelSize: 10
+                fontSizeMode: Text.HorizontalFit
+                horizontalAlignment: Text.AlignRight
+            }
         }
 
         // Network
@@ -169,23 +193,56 @@ Rectangle {
             spacing: 2
 
             RowLayout {
+                Layout.fillWidth: true
                 spacing: 5
                 ThemedIcon { Layout.preferredWidth: 18; Layout.preferredHeight: 18; source: "../icons/SystemInfo/ethernet-port.svg"; color: theme.ethernetIconColor }
-                Text { text: "Network Stats"; color: theme.text; font.pixelSize: 13 }
+                Text {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: "Network Stats"
+                    color: theme.text
+                    font.pixelSize: 13
+                    elide: Text.ElideRight
+                }
             }
 
             RowLayout {
-                Layout.leftMargin: 35
-                spacing: 16
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                Layout.leftMargin: 23
+                spacing: 8
+
                 RowLayout {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     spacing: 4
                     Text { text: "↑"; color: theme.info; font.pixelSize: 13 }
-                    Text { text: root.formatSpeed(root.uploadSpeed); color: theme.info; font.pixelSize: 13 }
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        text: root.formatSpeed(root.uploadSpeed)
+                        color: theme.info
+                        font.pixelSize: 13
+                        minimumPixelSize: 10
+                        fontSizeMode: Text.HorizontalFit
+                        elide: Text.ElideRight
+                    }
                 }
                 RowLayout {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     spacing: 4
                     Text { text: "↓"; color: theme.info; font.pixelSize: 13 }
-                    Text { text: root.formatSpeed(root.downloadSpeed); color: theme.info; font.pixelSize: 13 }
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        text: root.formatSpeed(root.downloadSpeed)
+                        color: theme.info
+                        font.pixelSize: 13
+                        minimumPixelSize: 10
+                        fontSizeMode: Text.HorizontalFit
+                        elide: Text.ElideRight
+                    }
                 }
             }
         }

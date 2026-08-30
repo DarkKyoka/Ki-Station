@@ -558,7 +558,15 @@ import "PopUpCards"
                     kdeConnectRefreshTimer.restart()
                 } else if (sourceName.indexOf(root.kdeActionPrefix) === 0 ||
                            sourceName.indexOf(root.kdeDbusActionPrefix) === 0) {
-                    if (sourceName.indexOf(" --share ") !== -1 &&
+                    if (sourceName.indexOf(" --list-notifications") !== -1) {
+                        root.kdeBusy = false
+                        root.kdeNotificationsChecked = true
+                        root.kdeNotifications = succeeded
+                            ? root.parseKdeNotifications(out) : []
+                        root.kdeStatusMessage = succeeded
+                            ? "" : (error || "Could not load phone notifications.")
+                        root.kdeStatusError = !succeeded
+                    } else if (sourceName.indexOf(" --share ") !== -1 &&
                             root.kdeSharePending > 0) {
                         root.kdeShareFailed = root.kdeShareFailed || !succeeded
                         if (!succeeded && root.kdeShareErrorMessage === "")
@@ -608,6 +616,32 @@ import "PopUpCards"
         property var kdeAvailableIds: ({})
         property var kdeInfoCommands: ({})
         property var kdeDevices: []
+        property var kdeNotifications: []
+        property bool kdeNotificationsChecked: false
+
+        function parseKdeNotifications(raw) {
+            var result = []
+            var lines = String(raw || "").split("\n")
+
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim()
+                if (line.indexOf("- ") !== 0)
+                    continue
+
+                var content = line.substring(2)
+                var separator = content.indexOf(":")
+                if (separator === -1) {
+                    result.push({ appName: "Phone", text: content })
+                    continue
+                }
+
+                result.push({
+                    appName: content.substring(0, separator).trim() || "Phone",
+                    text: content.substring(separator + 1).trim()
+                })
+            }
+            return result
+        }
 
         function parseKdeDevices(raw) {
             var result = []
@@ -747,6 +781,8 @@ import "PopUpCards"
             } else if (action === "ring") {
                 command = root.kdeActionPrefix + root.shellQuote(deviceId) + " --ring"
             } else if (action === "notifications") {
+                root.kdeNotifications = []
+                root.kdeNotificationsChecked = false
                 command = root.kdeActionPrefix + root.shellQuote(deviceId) +
                     " --list-notifications"
             } else {
@@ -860,37 +896,57 @@ import "PopUpCards"
 
             // Battery row, only visible if a battery is present
             Row {
-                visible: batteryItem.hasBattery
+                id: batteryRow
+                visible: hasBattery
+                height: 18
                 spacing: 4
 
-                Item {
-                    id: batteryItem
-                    property int  percentage: 0
-                    property bool charging:   false
-                    property bool hasBattery: false
+                property int  percentage: 0
+                property bool charging:   false
+                property bool hasBattery: false
 
-                    P5Support.DataSource {
-                        id: pmSource
-                        engine: "powermanagement"
-                        connectedSources: ["Battery"]
+                function iconSource() {
+                    if (charging)
+                        return "../icons/Battery/battery-charging.svg"
+                    if (percentage <= 15)
+                        return "../icons/Battery/battery-empty.svg"
+                    if (percentage <= 40)
+                        return "../icons/Battery/battery-low.svg"
+                    if (percentage <= 75)
+                        return "../icons/Battery/battery-medium.svg"
+                    return "../icons/battery-full.svg"
+                }
 
-                        onDataChanged: {
-                            var battery = data["Battery"]
-                            if (battery && battery["Has Battery"] !== undefined) {
-                                batteryItem.hasBattery = battery["Has Battery"]
-                                batteryItem.percentage = battery["Percent"] ?? 0
-                                batteryItem.charging   = battery["State"] === "Charging"
-                            }
+                P5Support.DataSource {
+                    id: pmSource
+                    engine: "powermanagement"
+                    connectedSources: ["Battery"]
+
+                    onDataChanged: {
+                        var battery = data["Battery"]
+                        if (battery && battery["Has Battery"] !== undefined) {
+                            batteryRow.hasBattery = battery["Has Battery"]
+                            batteryRow.percentage = Math.max(0, Math.min(100,
+                                Math.round(battery["Percent"] ?? 0)))
+                            batteryRow.charging = battery["State"] === "Charging"
                         }
                     }
                 }
 
-                Text  { text: batteryItem.percentage; color: theme.text; font.pointSize: 11 }
+                Text {
+                    width: 40
+                    height: parent.height
+                    text: batteryRow.percentage + "%"
+                    color: theme.text
+                    font.pointSize: 11
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
                 ThemedIcon {
-                    source: "../icons/battery-full.svg"
+                    source: batteryRow.iconSource()
                     color: theme.batteryIconColor
-                    width: 16
-                    height: 16
+                    width: 18
+                    height: 18
                 }
             }
 
@@ -1096,6 +1152,8 @@ import "PopUpCards"
                                 statusMessage: root.kdeStatusMessage
                                 statusError: root.kdeStatusError
                                 devices: root.kdeDevices
+                                notifications: root.kdeNotifications
+                                notificationsChecked: root.kdeNotificationsChecked
                                 theme: root.theme
 
                                 onRequestRefresh: root.refreshKdeConnect()

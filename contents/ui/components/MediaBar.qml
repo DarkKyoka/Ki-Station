@@ -28,6 +28,7 @@ Rectangle {
     readonly property string activePlayer:   state ? state.activePlayer   : ""
     readonly property bool   hasPlayer:      activePlayer !== ""
     readonly property bool   canSeek:        hasPlayer && duration > 0
+    property string pendingSeekCommand: ""
 
     signal seekRequested()
     signal refreshRequested()
@@ -38,6 +39,13 @@ Rectangle {
         connectedSources: []
 
         onNewData: (sourceName, data) => {
+            if (sourceName === root.pendingSeekCommand) {
+                var exitCode = data["exit code"] !== undefined
+                    ? parseInt(data["exit code"]) : 0
+                if (exitCode !== 0 && root.state)
+                    root.state.positionOverrideActive = false
+                root.pendingSeekCommand = ""
+            }
             disconnectSource(sourceName)
             root.refreshRequested()
         }
@@ -47,13 +55,14 @@ Rectangle {
         return "'" + String(value).replace(/'/g, "'\"'\"'") + "'"
     }
 
-    function runPlayerCommand(action) {
+    function runPlayerCommand(action, isSeek) {
         if (!root.hasPlayer)
             return
 
-        mediaCommandSource.connectSource(
-            "playerctl -p " + root.shellQuote(root.activePlayer) + " " + action
-        )
+        var command = "playerctl -p " + root.shellQuote(root.activePlayer) + " " + action
+        if (isSeek)
+            root.pendingSeekCommand = command
+        mediaCommandSource.connectSource(command)
     }
 
     function formatTime(us) {
@@ -111,7 +120,13 @@ Rectangle {
         if (root.state)
             root.state.position = value
 
-        root.runPlayerCommand("position " + (value / 1000000))
+        if (root.state) {
+            root.state.hasPosition = true
+            root.state.positionOverrideActive = true
+            root.state.positionOverrideGraceUntil = Date.now() + 750
+        }
+
+        root.runPlayerCommand("position " + (value / 1000000).toFixed(3), true)
         root.seekRequested()
     }
 

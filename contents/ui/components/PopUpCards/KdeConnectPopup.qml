@@ -2,13 +2,18 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Dialogs as QtDialogs
 import QtQuick.Controls as Controls
+import org.kde.kirigami as Kirigami
 import org.kde.plasma.components as PlasmaComponents3
+
+import ".."
 
 PlasmaComponents3.Popup {
     id: root
 
-    width: 380
-    height: 420
+    implicitWidth: 350
+    implicitHeight: 420
+    width: implicitWidth
+    height: implicitHeight
 
     property bool serviceAvailable: false
     property bool checked: false
@@ -16,8 +21,12 @@ PlasmaComponents3.Popup {
     property string statusMessage: ""
     property bool statusError: false
     property var devices: []
+    property var notifications: []
+    property bool notificationsChecked: false
     property var theme
     property string selectedDeviceId: ""
+    property bool unpairConfirmationPending: false
+    property bool showNotifications: false
 
     readonly property var activeDevice: {
         if (root.devices.length === 0)
@@ -46,16 +55,54 @@ PlasmaComponents3.Popup {
     closePolicy: PlasmaComponents3.Popup.CloseOnEscape |
         PlasmaComponents3.Popup.CloseOnPressOutside
 
-    onOpened: root.requestRefresh()
+    onOpened: {
+        root.unpairConfirmationPending = false
+        root.showNotifications = false
+        root.requestRefresh()
+    }
+    onClosed: {
+        root.unpairConfirmationPending = false
+        root.showNotifications = false
+    }
 
     function actionEnabled() {
         return root.activeDevice !== null &&
             root.activeDevice.available && !root.busy
     }
 
+    function batteryIconSource(charge) {
+        if (charge <= 15)
+            return "../icons/Battery/battery-empty.svg"
+        if (charge <= 40)
+            return "../icons/Battery/battery-low.svg"
+        if (charge <= 75)
+            return "../icons/Battery/battery-medium.svg"
+        return "../icons/battery-full.svg"
+    }
+
+    function providerLabel(provider) {
+        var value = String(provider || "").trim()
+        if (value === "")
+            return ""
+        if (value.toLowerCase() === "lan")
+            return "Local network"
+        if (value.toLowerCase() === "bluetooth")
+            return "Bluetooth"
+        return value
+    }
+
+    Timer {
+        id: unpairConfirmationTimer
+        interval: 4000
+        repeat: false
+        onTriggered: root.unpairConfirmationPending = false
+    }
+
     QtDialogs.FileDialog {
         id: fileDialog
-        title: "Share files with device"
+        title: root.activeDevice
+            ? "Share files with " + root.activeDevice.name
+            : "Share files with device"
         fileMode: QtDialogs.FileDialog.OpenFiles
         onAccepted: {
             if (!root.activeDevice)
@@ -76,33 +123,59 @@ PlasmaComponents3.Popup {
         border.width: 1
     }
 
-    // The reference layout is intentionally compact: one device summary,
-    // followed by six equally sized actions.
-    component ActionTile: PlasmaComponents3.Button {
-        id: tile
+    component ActionButton: PlasmaComponents3.Button {
+        id: actionButton
+
+        property string iconName: ""
+        property bool primary: false
+        property bool destructive: false
 
         Layout.fillWidth: true
-        Layout.preferredHeight: 52
-        Layout.minimumHeight: 52
-        font.pointSize: 8
-        display: PlasmaComponents3.Button.TextOnly
+        Layout.preferredHeight: 46
+        Layout.minimumHeight: 46
+        opacity: enabled ? 1 : 0.45
 
         background: Rectangle {
-            color: tile.down ? Qt.alpha(root.theme.text, 0.16) :
-                (tile.hovered ? Qt.alpha(root.theme.text, 0.09) : root.theme.surfaceAlt)
-            radius: 6
-            border.color: tile.hovered ? Qt.alpha(root.theme.text, 0.18) : "transparent"
-            border.width: 1
+            radius: 5
+            color: {
+                if (actionButton.down)
+                    return Qt.alpha(actionButton.destructive
+                        ? root.theme.negative : root.theme.text, 0.2)
+                if (actionButton.primary)
+                    return actionButton.hovered
+                        ? Qt.lighter(root.theme.accent, 1.12) : root.theme.accent
+                if (actionButton.hovered)
+                    return Qt.alpha(root.theme.text, 0.1)
+                return root.theme.surfaceAlt
+            }
+            border.width: actionButton.primary ? 0 : 1
+            border.color: actionButton.destructive
+                ? Qt.alpha(root.theme.negative, 0.55)
+                : Qt.alpha(root.theme.text, 0.12)
         }
 
-        contentItem: PlasmaComponents3.Label {
-            text: tile.text
-            color: tile.enabled ? root.theme.text : root.theme.subtext
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            wrapMode: Text.Wrap
-            maximumLineCount: 2
-            font.pointSize: 8
+        contentItem: RowLayout {
+            spacing: 8
+
+            Item { Layout.fillWidth: true }
+
+            Kirigami.Icon {
+                source: actionButton.iconName
+                color: actionButton.primary ? root.theme.onAccent :
+                    (actionButton.destructive ? root.theme.negative : root.theme.text)
+                Layout.preferredWidth: 18
+                Layout.preferredHeight: 18
+            }
+
+            PlasmaComponents3.Label {
+                text: actionButton.text
+                color: actionButton.primary ? root.theme.onAccent :
+                    (actionButton.destructive ? root.theme.negative : root.theme.text)
+                font.pointSize: 9
+                elide: Text.ElideRight
+            }
+
+            Item { Layout.fillWidth: true }
         }
     }
 
@@ -113,208 +186,527 @@ PlasmaComponents3.Popup {
 
         RowLayout {
             Layout.fillWidth: true
+            Layout.preferredHeight: 30
+
+            PlasmaComponents3.Button {
+                visible: root.showNotifications
+                icon.name: "arrow-left"
+                display: PlasmaComponents3.Button.IconOnly
+                onClicked: root.showNotifications = false
+                Controls.ToolTip.text: "Back to device actions"
+                Controls.ToolTip.visible: hovered
+            }
 
             PlasmaComponents3.Label {
-                text: "KDE Connected Device"
+                text: root.showNotifications ? "Notifications" : "KDE Connect"
                 color: root.theme.text
+                font.bold: true
                 font.pointSize: 12
                 Layout.fillWidth: true
             }
 
-            Controls.ComboBox {
-                visible: root.devices.length > 1
-                model: root.devices
-                textRole: "name"
-                implicitWidth: 120
-                currentIndex: {
-                    if (!root.activeDevice)
-                        return -1
-                    for (var i = 0; i < root.devices.length; i++) {
-                        if (root.devices[i].id === root.activeDevice.id)
-                            return i
-                    }
-                    return -1
-                }
-                onActivated: index => root.selectedDeviceId = root.devices[index].id
-            }
-
-            Rectangle {
-                width: 10
-                height: 10
-                radius: 5
-                color: root.activeDevice && root.activeDevice.available
-                    ? root.theme.positive : root.theme.negative
-                Layout.alignment: Qt.AlignVCenter
+            Controls.BusyIndicator {
+                visible: root.busy || !root.checked
+                running: visible
+                implicitWidth: 20
+                implicitHeight: 20
             }
 
             PlasmaComponents3.Button {
                 icon.name: "view-refresh"
                 display: PlasmaComponents3.Button.IconOnly
                 enabled: !root.busy
-                onClicked: root.refreshRequested()
-                Controls.ToolTip.text: "Refresh device information"
+                onClicked: {
+                    if (root.showNotifications && root.activeDevice) {
+                        root.deviceAction(root.activeDevice.id, "notifications",
+                            "Notifications loaded")
+                    } else {
+                        root.refreshRequested()
+                    }
+                }
+                Controls.ToolTip.text: root.showNotifications
+                    ? "Refresh notifications" : "Refresh devices"
                 Controls.ToolTip.visible: hovered
             }
         }
 
-        PlasmaComponents3.Label {
+        Rectangle {
             Layout.fillWidth: true
-            visible: root.statusMessage !== ""
-            text: root.statusMessage
-            color: root.statusError ? root.theme.negative : root.theme.subtext
-            font.pointSize: 8
-            wrapMode: Text.Wrap
-        }
+            Layout.preferredHeight: 100
+            visible: root.activeDevice !== null && !root.showNotifications
+            radius: 6
+            color: root.theme.surfaceAlt
+            border.width: 1
+            border.color: root.activeDevice && root.activeDevice.available
+                ? Qt.alpha(root.theme.positive, 0.35)
+                : Qt.alpha(root.theme.text, 0.1)
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 140
-            Layout.minimumHeight: 140
-            visible: root.activeDevice !== null
-            spacing: 8
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 12
 
-            Rectangle {
-                Layout.preferredWidth: 86
-                Layout.minimumWidth: 86
-                Layout.preferredHeight: 140
-                Layout.minimumHeight: 140
-                color: root.theme.surface
-                radius: 4
+                Item {
+                    Layout.preferredWidth: 48
+                    Layout.preferredHeight: 48
 
-                Image {
-                    anchors.centerIn: parent
-                    width: 56
-                    height: 56
-                    source: "../../icons/monitor-smartphone.svg"
-                    fillMode: Image.PreserveAspectFit
-                    opacity: 0.9
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 6
+                        color: Qt.alpha(root.activeDevice && root.activeDevice.available
+                            ? root.theme.positive : root.theme.subtext, 0.1)
+                    }
+
+                    ThemedIcon {
+                        anchors.centerIn: parent
+                        width: 28
+                        height: 28
+                        source: "../icons/monitor-smartphone.svg"
+                        color: root.activeDevice && root.activeDevice.available
+                            ? root.theme.positive : root.theme.subtext
+                    }
                 }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                color: root.theme.surfaceAlt
-                radius: 6
 
                 ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 7
+                    Layout.fillWidth: true
+                    spacing: 3
+
+                    Controls.ComboBox {
+                        visible: root.devices.length > 1
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 210
+                        model: root.devices
+                        textRole: "name"
+                        currentIndex: {
+                            if (!root.activeDevice)
+                                return -1
+                            for (var i = 0; i < root.devices.length; i++) {
+                                if (root.devices[i].id === root.activeDevice.id)
+                                    return i
+                            }
+                            return -1
+                        }
+                        onActivated: index => root.selectedDeviceId = root.devices[index].id
+                    }
 
                     PlasmaComponents3.Label {
+                        visible: root.devices.length <= 1
                         text: root.activeDevice ? root.activeDevice.name : ""
                         color: root.theme.text
-                        font.pointSize: 15
+                        font.bold: true
+                        font.pointSize: 13
                         elide: Text.ElideRight
-                        maximumLineCount: 1
                         Layout.fillWidth: true
                     }
 
                     RowLayout {
-                        visible: root.activeDevice && root.activeDevice.batteryCharge >= 0
-                        spacing: 8
+                        spacing: 5
 
-                        Image {
-                            source: "../../icons/battery-full.svg"
-                            sourceSize: Qt.size(20, 20)
-                            Layout.preferredWidth: 20
-                            Layout.preferredHeight: 20
+                        Rectangle {
+                            width: 7
+                            height: 7
+                            radius: 4
+                            color: root.activeDevice && root.activeDevice.available
+                                ? root.theme.positive : root.theme.subtext
                         }
 
                         PlasmaComponents3.Label {
-                            text: root.activeDevice ? root.activeDevice.batteryCharge + "%" : ""
-                            color: root.theme.text
-                            font.pointSize: 11
+                            text: root.activeDevice && root.activeDevice.available
+                                ? "Connected" : "Paired, offline"
+                            color: root.activeDevice && root.activeDevice.available
+                                ? root.theme.positive : root.theme.subtext
+                            font.pointSize: 9
                         }
                     }
 
                     RowLayout {
-                        visible: root.activeDevice && root.activeDevice.networkLabel !== ""
-                        spacing: 8
-
-                        Image {
-                            source: "../../icons/Wifi/wifi.svg"
-                            sourceSize: Qt.size(20, 20)
-                            Layout.preferredWidth: 20
-                            Layout.preferredHeight: 20
-                        }
-
-                        PlasmaComponents3.Label {
-                            text: root.activeDevice ? root.activeDevice.networkLabel : ""
-                            color: root.theme.text
-                            font.pointSize: 10
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    PlasmaComponents3.Label {
+                        Layout.fillWidth: true
+                        spacing: 12
                         visible: root.activeDevice &&
-                            root.activeDevice.batteryCharge < 0 &&
-                            root.activeDevice.networkLabel === ""
-                        text: root.activeDevice && root.activeDevice.available
-                            ? "Connected" : "Paired, offline"
-                        color: root.activeDevice && root.activeDevice.available
-                            ? root.theme.positive : root.theme.subtext
-                        font.pointSize: 9
+                            (root.activeDevice.batteryCharge >= 0 ||
+                             root.activeDevice.networkLabel !== "")
+
+                        RowLayout {
+                            visible: root.activeDevice && root.activeDevice.batteryCharge >= 0
+                            spacing: 4
+
+                            ThemedIcon {
+                                source: root.activeDevice
+                                    ? root.batteryIconSource(root.activeDevice.batteryCharge) : ""
+                                color: root.theme.text
+                                Layout.preferredWidth: 16
+                                Layout.preferredHeight: 16
+                            }
+
+                            PlasmaComponents3.Label {
+                                text: root.activeDevice
+                                    ? root.activeDevice.batteryCharge + "%" : ""
+                                color: root.theme.text
+                                font.pointSize: 9
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: root.activeDevice && root.activeDevice.networkLabel !== ""
+                            spacing: 4
+
+                            Kirigami.Icon {
+                                source: "network-wireless-100"
+                                color: root.theme.subtext
+                                Layout.preferredWidth: 15
+                                Layout.preferredHeight: 15
+                            }
+
+                            PlasmaComponents3.Label {
+                                Layout.fillWidth: true
+                                text: root.activeDevice
+                                    ? root.providerLabel(root.activeDevice.networkLabel) : ""
+                                color: root.theme.subtext
+                                font.pointSize: 9
+                                elide: Text.ElideRight
+                            }
+                        }
                     }
                 }
             }
         }
 
-        PlasmaComponents3.Label {
+        Rectangle {
             Layout.fillWidth: true
-            visible: root.checked && root.activeDevice === null
-            text: !root.serviceAvailable
-                ? "KDE Connect is unavailable or no devices are paired."
-                : "No paired devices found."
-            color: root.theme.subtext
-            font.pointSize: 9
-            wrapMode: Text.Wrap
+            Layout.preferredHeight: statusLabel.implicitHeight + 14
+            visible: root.statusMessage !== ""
+            radius: 4
+            color: Qt.alpha(root.statusError ? root.theme.negative : root.theme.info, 0.1)
+            border.width: 1
+            border.color: Qt.alpha(root.statusError
+                ? root.theme.negative : root.theme.info, 0.25)
+
+            PlasmaComponents3.Label {
+                id: statusLabel
+                anchors.fill: parent
+                anchors.margins: 7
+                text: root.statusMessage
+                color: root.statusError ? root.theme.negative : root.theme.subtext
+                font.pointSize: 8
+                wrapMode: Text.Wrap
+                verticalAlignment: Text.AlignVCenter
+            }
         }
 
-        GridLayout {
-            columns: 3
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            rowSpacing: 4
-            columnSpacing: 4
+            visible: root.activeDevice !== null && !root.showNotifications
+            spacing: 6
 
-            ActionTile {
+            PlasmaComponents3.Label {
+                text: "Actions"
+                color: root.theme.subtext
+                font.bold: true
+                font.pointSize: 8
+            }
+
+            ActionButton {
                 text: "Share files"
+                iconName: "document-send"
+                primary: true
                 enabled: root.actionEnabled()
                 onClicked: fileDialog.open()
             }
 
-            ActionTile {
-                text: "Ring Device"
-                enabled: root.actionEnabled()
-                onClicked: root.deviceAction(root.activeDevice.id, "ring", "Ring requested")
+            GridLayout {
+                columns: 2
+                Layout.fillWidth: true
+                rowSpacing: 6
+                columnSpacing: 6
+
+                ActionButton {
+                    text: "Ring phone"
+                    iconName: "call-start"
+                    enabled: root.actionEnabled()
+                    onClicked: root.deviceAction(
+                        root.activeDevice.id, "ring", "Ring requested")
+                }
+
+                ActionButton {
+                    text: "Browse files"
+                    iconName: "folder-open"
+                    enabled: root.actionEnabled()
+                    onClicked: root.deviceAction(
+                        root.activeDevice.id, "browse", "File browser opened")
+                }
+
+                ActionButton {
+                    text: "Notifications"
+                    iconName: "notifications"
+                    enabled: root.actionEnabled()
+                    onClicked: {
+                        root.showNotifications = true
+                        root.deviceAction(root.activeDevice.id, "notifications",
+                            "Notifications loaded")
+                    }
+                }
+
+                ActionButton {
+                    text: "Send clipboard"
+                    iconName: "edit-copy"
+                    enabled: root.actionEnabled()
+                    onClicked: root.deviceAction(
+                        root.activeDevice.id, "clipboard", "Clipboard sent")
+                }
             }
 
-            ActionTile {
-                text: "Access Files"
-                enabled: root.actionEnabled()
-                onClicked: root.deviceAction(root.activeDevice.id, "browse", "File browser opened")
+            Item { Layout.fillHeight: true }
+
+            PlasmaComponents3.MenuSeparator { Layout.fillWidth: true }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+
+                ActionButton {
+                    text: root.unpairConfirmationPending ? "Confirm unpair" : "Unpair"
+                    iconName: "edit-delete"
+                    destructive: true
+                    enabled: root.actionEnabled()
+                    Layout.preferredHeight: 40
+                    Layout.minimumHeight: 40
+                    onClicked: {
+                        if (!root.unpairConfirmationPending) {
+                            root.unpairConfirmationPending = true
+                            unpairConfirmationTimer.restart()
+                            return
+                        }
+                        root.unpairConfirmationPending = false
+                        root.deviceAction(
+                            root.activeDevice.id, "unpair", "Device unpaired")
+                    }
+                }
+
+                ActionButton {
+                    text: "Open app"
+                    iconName: "configure"
+                    enabled: !root.busy
+                    Layout.preferredHeight: 40
+                    Layout.minimumHeight: 40
+                    onClicked: {
+                        root.close()
+                        root.openSettings()
+                    }
+                }
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: root.activeDevice !== null && root.showNotifications
+            spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                PlasmaComponents3.Label {
+                    Layout.fillWidth: true
+                    text: root.activeDevice ? root.activeDevice.name : ""
+                    color: root.theme.subtext
+                    font.pointSize: 9
+                    elide: Text.ElideRight
+                }
+
+                PlasmaComponents3.Label {
+                    visible: root.notificationsChecked
+                    text: root.notifications.length + " active"
+                    color: root.theme.subtext
+                    font.pointSize: 8
+                }
             }
 
-            ActionTile {
-                text: "View Notifications"
-                enabled: root.actionEnabled()
-                onClicked: root.deviceAction(root.activeDevice.id, "notifications", "Notifications requested")
+            Controls.ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                visible: root.notifications.length > 0
+
+                ListView {
+                    id: notificationList
+                    model: root.notifications
+                    spacing: 4
+                    interactive: contentHeight > height
+
+                    delegate: Rectangle {
+                        width: notificationList.width
+                        height: Math.max(58, notificationText.implicitHeight + 34)
+                        radius: 5
+                        color: root.theme.surfaceAlt
+                        border.width: 1
+                        border.color: Qt.alpha(root.theme.text, 0.1)
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 10
+
+                            Kirigami.Icon {
+                                source: "notifications"
+                                color: root.theme.info
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                Layout.alignment: Qt.AlignTop
+                                Layout.topMargin: 2
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                PlasmaComponents3.Label {
+                                    Layout.fillWidth: true
+                                    text: modelData.appName
+                                    color: root.theme.text
+                                    font.bold: true
+                                    font.pointSize: 9
+                                    elide: Text.ElideRight
+                                }
+
+                                PlasmaComponents3.Label {
+                                    id: notificationText
+                                    Layout.fillWidth: true
+                                    text: modelData.text !== ""
+                                        ? modelData.text : "Notification"
+                                    color: root.theme.subtext
+                                    font.pointSize: 9
+                                    wrapMode: Text.Wrap
+                                    maximumLineCount: 3
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            ActionTile {
-                text: "Access Clipboard"
-                enabled: root.actionEnabled()
-                onClicked: root.deviceAction(root.activeDevice.id, "clipboard", "Clipboard sent")
-            }
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: root.notifications.length === 0
 
-            ActionTile {
-                text: "Disconnect"
-                enabled: root.actionEnabled()
-                onClicked: root.deviceAction(root.activeDevice.id, "unpair", "Device disconnected")
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width, 260)
+                    spacing: 8
+
+                    Controls.BusyIndicator {
+                        visible: !root.notificationsChecked && root.busy
+                        running: visible
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    Kirigami.Icon {
+                        visible: root.notificationsChecked || !root.busy
+                        source: "notifications-disabled"
+                        color: root.theme.subtext
+                        Layout.preferredWidth: 38
+                        Layout.preferredHeight: 38
+                        Layout.alignment: Qt.AlignHCenter
+                        opacity: 0.7
+                    }
+
+                    PlasmaComponents3.Label {
+                        Layout.fillWidth: true
+                        text: !root.notificationsChecked && root.busy
+                            ? "Loading notifications"
+                            : (root.statusError
+                                ? "Notifications unavailable"
+                                : "No active notifications")
+                        color: root.theme.text
+                        font.bold: true
+                        font.pointSize: 10
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    PlasmaComponents3.Label {
+                        Layout.fillWidth: true
+                        visible: root.notificationsChecked && !root.statusError
+                        text: "Check that Notification sync and Android notification access are enabled."
+                        color: root.theme.subtext
+                        font.pointSize: 8
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap
+                    }
+                }
+            }
+        }
+
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: root.activeDevice === null
+
+            ColumnLayout {
+                anchors.centerIn: parent
+                width: Math.min(parent.width, 260)
+                spacing: 8
+
+                Kirigami.Icon {
+                    source: root.checked && !root.serviceAvailable
+                        ? "network-disconnect" : "smartphone"
+                    color: root.theme.subtext
+                    Layout.preferredWidth: 42
+                    Layout.preferredHeight: 42
+                    Layout.alignment: Qt.AlignHCenter
+                    opacity: 0.75
+                }
+
+                PlasmaComponents3.Label {
+                    Layout.fillWidth: true
+                    text: !root.checked ? "Looking for devices" :
+                        (!root.serviceAvailable ? "KDE Connect unavailable" : "No paired devices")
+                    color: root.theme.text
+                    font.bold: true
+                    font.pointSize: 11
+                    horizontalAlignment: Text.AlignHCenter
+                }
+
+                PlasmaComponents3.Label {
+                    Layout.fillWidth: true
+                    text: !root.checked ? "" :
+                        (!root.serviceAvailable
+                            ? "Open KDE Connect to start the service and pair a device."
+                            : "Pair a phone in KDE Connect, then refresh this panel.")
+                    color: root.theme.subtext
+                    font.pointSize: 9
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 6
+                    spacing: 6
+
+                    PlasmaComponents3.Button {
+                        text: "Refresh"
+                        icon.name: "view-refresh"
+                        enabled: !root.busy
+                        Layout.fillWidth: true
+                        onClicked: root.refreshRequested()
+                    }
+
+                    PlasmaComponents3.Button {
+                        text: "Open app"
+                        icon.name: "configure"
+                        enabled: !root.busy
+                        Layout.fillWidth: true
+                        onClicked: {
+                            root.close()
+                            root.openSettings()
+                        }
+                    }
+                }
             }
         }
     }
